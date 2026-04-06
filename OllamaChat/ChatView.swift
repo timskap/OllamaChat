@@ -450,43 +450,62 @@ struct ThinkingBlock: View {
 
 // MARK: - Expanding Text Editor
 
-struct ExpandingTextEditor: NSViewRepresentable {
+struct ExpandingTextEditor: View {
     @Binding var text: String
+    var onSubmit: () -> Void
+
+    @State private var textHeight: CGFloat = 36
+
+    private let minHeight: CGFloat = 36
+    private let maxHeight: CGFloat = 160
+    private let font: NSFont = .systemFont(ofSize: 14)
+
+    var body: some View {
+        ExpandingNSTextView(text: $text, calculatedHeight: $textHeight, font: font, onSubmit: onSubmit)
+            .frame(height: min(max(textHeight, minHeight), maxHeight))
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.primary.opacity(0.12)))
+    }
+}
+
+private struct ExpandingNSTextView: NSViewRepresentable {
+    @Binding var text: String
+    @Binding var calculatedHeight: CGFloat
+    var font: NSFont
     var onSubmit: () -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
-        let textView = NSTextView()
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
 
+        let textView = NSTextView()
         textView.delegate = context.coordinator
         textView.isRichText = false
         textView.allowsUndo = true
-        textView.font = .systemFont(ofSize: 14)
-        textView.textContainerInset = NSSize(width: 6, height: 8)
+        textView.font = font
+        textView.textContainerInset = NSSize(width: 8, height: 8)
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.autoresizingMask = [.width]
         textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.lineFragmentPadding = 4
-        textView.backgroundColor = .textBackgroundColor
-        textView.drawsBackground = true
+        textView.textContainer?.lineFragmentPadding = 2
+        textView.backgroundColor = .clear
+        textView.drawsBackground = false
         textView.string = text
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
 
         scrollView.documentView = textView
-        scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.borderType = .bezelBorder
-
-        // Dynamic height constraints
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-        let minH = scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 34)
-        let maxH = scrollView.heightAnchor.constraint(lessThanOrEqualToConstant: 150)
-        minH.isActive = true
-        maxH.isActive = true
-
-        context.coordinator.scrollView = scrollView
         context.coordinator.textView = textView
+
+        // Initial height calc
+        DispatchQueue.main.async {
+            context.coordinator.recalcHeight()
+        }
 
         return scrollView
     }
@@ -494,9 +513,8 @@ struct ExpandingTextEditor: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? NSTextView else { return }
         if textView.string != text {
-            let selectedRanges = textView.selectedRanges
             textView.string = text
-            textView.selectedRanges = selectedRanges
+            context.coordinator.recalcHeight()
         }
     }
 
@@ -505,30 +523,25 @@ struct ExpandingTextEditor: NSViewRepresentable {
     }
 
     class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: ExpandingTextEditor
+        var parent: ExpandingNSTextView
         weak var textView: NSTextView?
-        weak var scrollView: NSScrollView?
 
-        init(_ parent: ExpandingTextEditor) {
+        init(_ parent: ExpandingNSTextView) {
             self.parent = parent
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView else { return }
             parent.text = textView.string
-            invalidateHeight()
+            recalcHeight()
         }
 
-        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-                let event = NSApp.currentEvent
-                let shiftPressed = event?.modifierFlags.contains(.shift) ?? false
-                if shiftPressed {
-                    // Shift+Enter: insert newline
+        func textView(_ textView: NSTextView, doCommandBy sel: Selector) -> Bool {
+            if sel == #selector(NSResponder.insertNewline(_:)) {
+                if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
                     textView.insertNewlineIgnoringFieldEditor(nil)
                     return true
                 } else {
-                    // Enter: send message
                     parent.onSubmit()
                     return true
                 }
@@ -536,17 +549,14 @@ struct ExpandingTextEditor: NSViewRepresentable {
             return false
         }
 
-        private func invalidateHeight() {
-            guard let textView, let scrollView else { return }
-            textView.layoutManager?.ensureLayout(for: textView.textContainer!)
-            let usedRect = textView.layoutManager?.usedRect(for: textView.textContainer!) ?? .zero
+        func recalcHeight() {
+            guard let textView, let container = textView.textContainer, let layoutManager = textView.layoutManager else { return }
+            layoutManager.ensureLayout(for: container)
+            let usedRect = layoutManager.usedRect(for: container)
             let inset = textView.textContainerInset
-            let contentHeight = usedRect.height + inset.height * 2 + 4
-            let clamped = min(max(contentHeight, 34), 150)
-
-            // Update scroll view frame if needed
-            if abs(scrollView.frame.height - clamped) > 1 {
-                scrollView.invalidateIntrinsicContentSize()
+            let newHeight = usedRect.height + inset.height * 2 + 2
+            DispatchQueue.main.async {
+                self.parent.calculatedHeight = newHeight
             }
         }
     }

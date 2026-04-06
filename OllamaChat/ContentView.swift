@@ -49,6 +49,11 @@ struct ContentView: View {
         }
         .frame(minWidth: 600, minHeight: 400)
         .onAppear {
+            // Auto-load Whisper if cached
+            if audio.isModelCached && !audio.isModelLoaded {
+                Task { await audio.loadModel() }
+            }
+
             if selectedProjectID == nil, let first = store.projects.first {
                 selectedProjectID = first.id
                 selectedChatID = first.chats.first?.id

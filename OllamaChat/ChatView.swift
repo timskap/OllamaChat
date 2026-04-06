@@ -53,214 +53,139 @@ struct ChatView: View {
                 }
             }
 
-            Divider()
+            // Composer area
+            VStack(spacing: 0) {
+                Divider()
 
-            // Status bar
-            if ollama.isGenerating {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small)
-                    if ollama.isSearching {
-                        Text("Searching the web...")
-                    } else if ollama.isThinking {
-                        Text("Thinking...")
-                    } else {
-                        Text("Generating...")
-                    }
-                    Spacer()
-                    Button(action: { ollama.cancelGeneration() }) {
-                        HStack(spacing: 3) {
-                            Image(systemName: "stop.fill")
-                                .font(.caption2)
-                            Text("Stop")
-                                .font(.caption)
-                        }
-                        .foregroundStyle(.red)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.top, 6)
-            }
-
-            // Toggles row
-            HStack(spacing: 12) {
-                Button(action: { thinkingEnabled.toggle() }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "brain")
-                            .font(.caption)
-                        Text("Think")
-                            .font(.caption)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(thinkingEnabled ? Color.purple.opacity(0.15) : Color.clear)
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(thinkingEnabled ? Color.purple.opacity(0.3) : Color.secondary.opacity(0.2)))
-                }
-                .buttonStyle(.plain)
-                .help(thinkingEnabled ? "Thinking: ON" : "Thinking: OFF")
-
-                Button(action: { webSearchEnabled.toggle() }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "globe")
-                            .font(.caption)
-                        Text("Web")
-                            .font(.caption)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(webSearchEnabled ? Color.blue.opacity(0.15) : Color.clear)
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(webSearchEnabled ? Color.blue.opacity(0.3) : Color.secondary.opacity(0.2)))
-                }
-                .buttonStyle(.plain)
-                .help(webSearchEnabled ? "Web search: ON" : "Web search: OFF")
-
-                Button(action: { toggleSoundClassifier() }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "ear")
-                            .font(.caption)
-                        Text("Sounds")
-                            .font(.caption)
-                        if soundClassifier.isAutoRecording {
-                            Circle().fill(.red).frame(width: 6, height: 6)
-                        } else if soundClassifier.isListening && !soundClassifier.topSound.isEmpty {
-                            Text("· \(soundClassifier.topSound)")
-                                .font(.caption2)
+                // Image preview
+                if let img = attachedImage {
+                    HStack(spacing: 8) {
+                        Image(nsImage: img)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxHeight: 60)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                        Button(action: { attachedImage = nil; attachedImageBase64 = nil }) {
+                            Image(systemName: "xmark.circle.fill")
                                 .foregroundStyle(.secondary)
-                                .lineLimit(1)
                         }
+                        .buttonStyle(.plain)
+                        Spacer()
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(soundClassifier.isListening ? Color.green.opacity(0.15) : Color.clear)
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(soundClassifier.isListening ? Color.green.opacity(0.3) : Color.secondary.opacity(0.2)))
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
                 }
-                .buttonStyle(.plain)
-                .help(soundClassifier.isListening ? "Listening (auto voice-to-chat)" : "Sound detection: OFF")
 
-                Button(action: {
-                    autoSpeak.toggle()
-                    if autoSpeak && !tts.isModelLoaded { Task { await tts.loadModel() } }
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: autoSpeak ? "speaker.wave.2.fill" : "speaker.wave.2")
-                            .font(.caption)
-                        Text("Speak")
-                            .font(.caption)
-                        if tts.isSpeaking {
-                            Image(systemName: "waveform")
-                                .font(.caption2)
-                                .foregroundStyle(.orange)
-                                .symbolEffect(.variableColor.iterative)
-                        }
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(autoSpeak ? Color.orange.opacity(0.15) : Color.clear)
-                    .clipShape(Capsule())
-                    .overlay(Capsule().stroke(autoSpeak ? Color.orange.opacity(0.3) : Color.secondary.opacity(0.2)))
-                }
-                .buttonStyle(.plain)
-                .help(autoSpeak ? "Auto-speak responses: ON" : "Auto-speak responses: OFF")
-
-                Spacer()
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 8)
-
-            // Image preview
-            if let img = attachedImage {
-                HStack {
-                    Image(nsImage: img)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxHeight: 80)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(alignment: .topTrailing) {
-                            Button(action: { attachedImage = nil; attachedImageBase64 = nil }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.caption)
-                                    .foregroundStyle(.white)
-                                    .background(Circle().fill(.black.opacity(0.5)))
+                // Recording overlay
+                if audio.isRecording {
+                    RecordingBar(audio: audio, onStop: {
+                        Task {
+                            if let text = await audio.stopRecording() {
+                                input += (input.isEmpty ? "" : " ") + text
                             }
-                            .buttonStyle(.plain)
-                            .offset(x: 4, y: -4)
                         }
-                    Spacer()
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 4)
-            }
+                    }, onCancel: {
+                        audio.cancelRecording()
+                    })
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                } else {
+                    // Text input with inline action buttons
+                    VStack(spacing: 0) {
+                        HStack(alignment: .bottom, spacing: 0) {
+                            // Text editor
+                            ExpandingTextEditor(text: $input, onSubmit: sendMessage)
+                                .disabled(ollama.isGenerating)
+                                .padding(.leading, 12)
+                                .padding(.vertical, 8)
 
-            // Recording overlay
-            if audio.isRecording {
-                RecordingBar(audio: audio, onStop: {
-                    Task {
-                        if let text = await audio.stopRecording() {
-                            input += (input.isEmpty ? "" : " ") + text
-                        }
-                    }
-                }, onCancel: {
-                    audio.cancelRecording()
-                })
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
-                .padding(.top, 4)
-            } else {
-                // Input row
-                HStack(alignment: .bottom, spacing: 8) {
-                    // Left buttons
-                    VStack(spacing: 6) {
-                        Button(action: { store.clearChat(projectID: projectID, chatID: chatID) }) {
-                            Image(systemName: "trash")
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Clear chat")
-                        .disabled(ollama.isGenerating)
-
-                        Button(action: pickImage) {
-                            Image(systemName: attachedImage != nil ? "photo.fill" : "photo")
-                                .foregroundStyle(attachedImage != nil ? .blue : .primary)
-                        }
-                        .buttonStyle(.borderless)
-                        .help("Attach image")
-                        .disabled(ollama.isGenerating)
-
-                        Button(action: { audio.startRecording() }) {
-                            ZStack {
-                                if audio.isTranscribing {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                } else {
-                                    Image(systemName: "mic")
+                            // Send or Stop button
+                            if ollama.isGenerating {
+                                Button(action: { ollama.cancelGeneration() }) {
+                                    Image(systemName: "stop.circle.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(.red)
                                 }
+                                .buttonStyle(.plain)
+                                .help("Stop generating")
+                                .padding(.trailing, 10)
+                                .padding(.bottom, 10)
+                            } else {
+                                Button(action: sendMessage) {
+                                    Image(systemName: "arrow.up.circle.fill")
+                                        .font(.title2)
+                                        .foregroundStyle(
+                                            (input.trimmingCharacters(in: .whitespaces).isEmpty && attachedImage == nil)
+                                            ? Color.secondary.opacity(0.4) : Color.accentColor
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(input.trimmingCharacters(in: .whitespaces).isEmpty && attachedImage == nil)
+                                .keyboardShortcut(.return, modifiers: .command)
+                                .help("Send (⌘↵)")
+                                .padding(.trailing, 10)
+                                .padding(.bottom, 10)
                             }
                         }
-                        .buttonStyle(.borderless)
-                        .help("Voice input")
-                        .disabled(!audio.isModelLoaded || audio.isTranscribing || ollama.isGenerating)
-                    }
 
-                    // Expandable text editor
-                    ExpandingTextEditor(text: $input, onSubmit: sendMessage)
-                        .disabled(ollama.isGenerating)
+                        // Bottom toolbar — action buttons + toggles
+                        HStack(spacing: 2) {
+                            // Action buttons
+                            composerButton(icon: "photo", active: attachedImage != nil, color: .blue) { pickImage() }
+                                .help("Attach image")
+                                .disabled(ollama.isGenerating)
 
-                    // Send button
-                    Button(action: sendMessage) {
-                        Image(systemName: "paperplane.fill")
+                            composerButton(icon: "mic", active: false, color: .primary) { audio.startRecording() }
+                                .help("Voice input")
+                                .disabled(!audio.isModelLoaded || audio.isTranscribing || ollama.isGenerating)
+
+                            Divider().frame(height: 16).padding(.horizontal, 4)
+
+                            // Feature toggles
+                            composerToggle(icon: "brain", label: "Think", active: thinkingEnabled, color: .purple) {
+                                thinkingEnabled.toggle()
+                            }
+                            composerToggle(icon: "globe", label: "Web", active: webSearchEnabled, color: .blue) {
+                                webSearchEnabled.toggle()
+                            }
+                            composerToggle(icon: "ear", label: soundClassifier.isAutoRecording ? "Rec" : "Listen",
+                                          active: soundClassifier.isListening, color: .green,
+                                          badge: soundClassifier.isAutoRecording ? .red : nil) {
+                                toggleSoundClassifier()
+                            }
+                            composerToggle(icon: autoSpeak ? "speaker.wave.2.fill" : "speaker.wave.2",
+                                          label: "Speak", active: autoSpeak, color: .orange,
+                                          badge: tts.isSpeaking ? .orange : nil) {
+                                autoSpeak.toggle()
+                                if autoSpeak && !tts.isModelLoaded { Task { await tts.loadModel() } }
+                            }
+
+                            Spacer()
+
+                            // Status indicator
+                            if ollama.isGenerating {
+                                HStack(spacing: 4) {
+                                    ProgressView().controlSize(.mini)
+                                    Text(ollama.isSearching ? "Searching..." : ollama.isThinking ? "Thinking..." : "Generating...")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.trailing, 4)
+                            }
+
+                            // Clear chat
+                            composerButton(icon: "trash", active: false, color: .secondary) {
+                                store.clearChat(projectID: projectID, chatID: chatID)
+                            }
+                            .help("Clear chat")
+                            .disabled(ollama.isGenerating)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 8)
                     }
-                    .buttonStyle(.borderless)
-                    .disabled((input.trimmingCharacters(in: .whitespaces).isEmpty && attachedImage == nil) || ollama.isGenerating)
-                    .keyboardShortcut(.return, modifiers: .command)
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
-                .padding(.top, 4)
             }
+            .background(.bar)
         }
         .onAppear {
             inputFocused = true
@@ -351,6 +276,39 @@ struct ChatView: View {
               let bitmap = NSBitmapImageRep(data: tiff),
               let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else { return }
         attachedImageBase64 = jpeg.base64EncodedString()
+    }
+
+    // MARK: - Composer Button Helpers
+
+    private func composerButton(icon: String, active: Bool, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: active ? "\(icon).fill" : icon)
+                .font(.system(size: 13))
+                .foregroundStyle(active ? color : .secondary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func composerToggle(icon: String, label: String, active: Bool, color: Color, badge: Color? = nil, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 3) {
+                Image(systemName: icon)
+                    .font(.system(size: 11))
+                Text(label)
+                    .font(.system(size: 11))
+                if let badge {
+                    Circle().fill(badge).frame(width: 5, height: 5)
+                }
+            }
+            .foregroundStyle(active ? color : .secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(active ? color.opacity(0.12) : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+        }
+        .buttonStyle(.plain)
     }
 
     private func toggleSoundClassifier() {

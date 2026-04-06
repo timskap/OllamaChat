@@ -68,6 +68,7 @@ struct SettingsView: View {
                     progress: audio.downloadProgress,
                     downloadedMB: audio.downloadedMB, totalMB: audio.totalMB,
                     statusText: audio.statusText,
+                    isCached: audio.isModelCached,
                     onDownload: { Task { await audio.loadModel() } }
                 )
 
@@ -125,6 +126,7 @@ struct SettingsView: View {
                             isLoaded: tts.isModelLoaded, isDownloading: tts.isDownloading,
                             progress: 0, downloadedMB: 0, totalMB: 0,
                             statusText: tts.statusText,
+                            isCached: tts.isModelCached,
                             onDownload: { Task { await tts.loadQwen3Model() } }
                         )
                     }
@@ -291,6 +293,7 @@ struct ModelCard: View {
     let title: String; let subtitle: String; let icon: String; let color: Color
     let isLoaded: Bool; let isDownloading: Bool; let progress: Double
     let downloadedMB: Int64; let totalMB: Int64; let statusText: String
+    var isCached: Bool = false
     let onDownload: () -> Void
 
     var body: some View {
@@ -308,6 +311,14 @@ struct ModelCard: View {
                         .background(Color.green.opacity(0.1)).clipShape(Capsule())
                 } else if isDownloading {
                     ProgressView().controlSize(.small)
+                } else if isCached {
+                    HStack(spacing: 6) {
+                        Text("Cached").font(.caption.bold()).foregroundStyle(.blue)
+                        Button(action: onDownload) { Text("Load").font(.caption.bold()) }
+                            .buttonStyle(.bordered).controlSize(.small)
+                    }
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.blue.opacity(0.08)).clipShape(Capsule())
                 } else {
                     Button(action: onDownload) { Text("Download").font(.caption.bold()) }
                         .buttonStyle(.borderedProminent).controlSize(.small)

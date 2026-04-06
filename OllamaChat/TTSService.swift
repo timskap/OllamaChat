@@ -11,6 +11,7 @@ enum TTSEngine: String, CaseIterable, Codable {
 @MainActor
 class TTSService: ObservableObject {
     @Published var isModelLoaded = false
+    @Published var isModelCached = false
     @Published var isSpeaking = false
     @Published var isDownloading = false
     @Published var statusText = ""
@@ -34,6 +35,24 @@ class TTSService: ObservableObject {
         self.appleVoiceID = UserDefaults.standard.string(forKey: "ttsAppleVoice") ?? ""
         let rate = UserDefaults.standard.float(forKey: "ttsAppleRate")
         self.appleRate = rate > 0 ? rate : AVSpeechUtteranceDefaultSpeechRate
+        // Check if Qwen3-TTS model is cached
+        self.isModelCached = Self.findCachedTTSModel()
+    }
+
+    private static func findCachedTTSModel() -> Bool {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let fm = FileManager.default
+        let searchPaths = [
+            home.appendingPathComponent("Documents/huggingface/models/argmaxinc"),
+            home.appendingPathComponent(".cache/huggingface/hub"),
+        ]
+        for base in searchPaths {
+            guard let contents = try? fm.contentsOfDirectory(at: base, includingPropertiesForKeys: nil, options: .skipsHiddenFiles) else { continue }
+            for item in contents where item.lastPathComponent.lowercased().contains("ttskit") || item.lastPathComponent.lowercased().contains("qwen3-tts") {
+                return true
+            }
+        }
+        return false
     }
 
     // MARK: - Qwen3 Model

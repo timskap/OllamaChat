@@ -7,6 +7,7 @@ class AudioService: ObservableObject {
     @Published var isRecording = false
     @Published var isTranscribing = false
     @Published var isModelLoaded = false
+    @Published var isModelCached = false
     @Published var isDownloading = false
     @Published var downloadProgress: Double = 0
     @Published var downloadedMB: Int64 = 0
@@ -20,6 +21,11 @@ class AudioService: ObservableObject {
     private var tempURL: URL?
 
     private let modelVariant = "openai_whisper-large-v3-v20240930_turbo"
+
+    init() {
+        // Check cache on startup (sync, fast — just file existence checks)
+        isModelCached = findCachedModel() != nil
+    }
 
     // MARK: - Model Loading
 

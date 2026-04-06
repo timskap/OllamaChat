@@ -417,52 +417,40 @@ class TelegramService: ObservableObject {
         }
         print("[Voice] Using ffmpeg: \(ffmpeg)")
 
-        // Write a shell script to temp to avoid Pipe deadlock
-        let scriptURL = tempDir.appendingPathComponent(UUID().uuidString).appendingPathExtension("sh")
-        let logURL = tempDir.appendingPathComponent(UUID().uuidString).appendingPathExtension("log")
-        let script = """
-        #!/bin/bash
-        "\(ffmpeg)" -i "\(localFile.path)" -ar 16000 -ac 1 -f wav -y "\(localWAV.path)" 2>"\(logURL.path)"
-        echo $? > "\(logURL.path).exit"
-        """
-        try? script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        // Run ffmpeg off main thread to avoid blocking MainActor
+        let inputPath = localFile.path
+        let outputPath = localWAV.path
+        let ffmpegPath = ffmpeg
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [scriptURL.path]
-        var env = ProcessInfo.processInfo.environment
-        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
-        process.environment = env
+        let success = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            DispatchQueue.global(qos: .userInitiated).async {
+                let process = Process()
+                process.executableURL = URL(fileURLWithPath: ffmpegPath)
+                process.arguments = ["-i", inputPath, "-ar", "16000", "-ac", "1", "-f", "wav", "-y", outputPath]
+                process.standardOutput = FileHandle.nullDevice
+                process.standardError = FileHandle.nullDevice
+                process.environment = ["PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"]
 
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            print("[Voice] ffmpeg launch error: \(error)")
-            try? FileManager.default.removeItem(at: localFile)
-            try? FileManager.default.removeItem(at: scriptURL)
-            return nil
+                do {
+                    try process.run()
+                    process.waitUntilExit()
+                    let ok = process.terminationStatus == 0
+                    print("[Voice] ffmpeg exit: \(process.terminationStatus)")
+                    continuation.resume(returning: ok)
+                } catch {
+                    print("[Voice] ffmpeg launch error: \(error)")
+                    continuation.resume(returning: false)
+                }
+            }
         }
 
-        // Read exit code and log
-        let exitCode = (try? String(contentsOf: URL(fileURLWithPath: logURL.path + ".exit"), encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "?"
-        let errLog = (try? String(contentsOf: logURL, encoding: .utf8)) ?? ""
-        print("[Voice] ffmpeg exit: \(exitCode)")
-        if exitCode != "0" {
-            print("[Voice] ffmpeg stderr: \(errLog.suffix(500))")
-        }
-
-        // Cleanup temp files
-        try? FileManager.default.removeItem(at: scriptURL)
-        try? FileManager.default.removeItem(at: logURL)
-        try? FileManager.default.removeItem(at: URL(fileURLWithPath: logURL.path + ".exit"))
         try? FileManager.default.removeItem(at: localFile)
 
-        if FileManager.default.fileExists(atPath: localWAV.path) {
+        if success && FileManager.default.fileExists(atPath: localWAV.path) {
             print("[Voice] Converted to WAV successfully")
             return localWAV
         }
-        print("[Voice] WAV file not created")
+        print("[Voice] WAV conversion failed")
         return nil
     }
 

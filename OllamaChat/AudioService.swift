@@ -328,7 +328,12 @@ class AudioService: ObservableObject {
         do {
             let sk = try await ensureSpeakerKit()
             print("[Diarize] Running diarization...")
-            let diarization = try await sk.diarize(audioArray: audioArray)
+            // Lower threshold to better separate similar voices
+            let diarizeOptions = PyannoteDiarizationOptions(
+                clusterDistanceThreshold: 0.5,
+                minClusterSize: 1
+            )
+            let diarization = try await sk.diarize(audioArray: audioArray, options: diarizeOptions)
             print("[Diarize] Found \(diarization.speakerCount) speakers, \(diarization.segments.count) segments")
 
             // Single speaker — return plain text

@@ -1,0 +1,329 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AA000001 /* OllamaChatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000011; };
+		AA000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000012; };
+		AA000003 /* OllamaService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000013; };
+		AA000004 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000016; };
+		AA000005 /* ProjectStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000017; };
+		AA000006 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000018; };
+		AA000007 /* InstructionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000019; };
+		AA000008 /* ChatView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00001A; };
+		AA000009 /* AudioService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00001B; };
+		AA00000C /* TelegramService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00001C; };
+		AA00000D /* WebSearchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00001D; };
+		AA00000E /* SoundClassifierService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00001E; };
+		CC000001 /* TTSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00001F; };
+		CC000002 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC000003; };
+		AA00000A /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = BB000001; };
+		AA00000F /* TTSKit in Frameworks */ = {isa = PBXBuildFile; productRef = BB000004; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		AA000010 /* OllamaChat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OllamaChat.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA000011 /* OllamaChatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaChatApp.swift; sourceTree = "<group>"; };
+		AA000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		AA000013 /* OllamaService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaService.swift; sourceTree = "<group>"; };
+		AA000014 /* OllamaChat.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OllamaChat.entitlements; sourceTree = "<group>"; };
+		AA000015 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA000016 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		AA000017 /* ProjectStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProjectStore.swift; sourceTree = "<group>"; };
+		AA000018 /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		AA000019 /* InstructionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstructionsView.swift; sourceTree = "<group>"; };
+		AA00001A /* ChatView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatView.swift; sourceTree = "<group>"; };
+		AA00001B /* AudioService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioService.swift; sourceTree = "<group>"; };
+		AA00001C /* TelegramService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TelegramService.swift; sourceTree = "<group>"; };
+		AA00001D /* WebSearchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebSearchService.swift; sourceTree = "<group>"; };
+		AA00001E /* SoundClassifierService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundClassifierService.swift; sourceTree = "<group>"; };
+		AA00001F /* TTSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSService.swift; sourceTree = "<group>"; };
+		CC000003 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AA000020 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA00000A /* WhisperKit in Frameworks */,
+				AA00000F /* TTSKit in Frameworks */,
+				AA00000B /* MarkdownUI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AA000030 = {
+			isa = PBXGroup;
+			children = (
+				AA000031 /* OllamaChat */,
+				AA000032 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AA000031 /* OllamaChat */ = {
+			isa = PBXGroup;
+			children = (
+				AA000011 /* OllamaChatApp.swift */,
+				AA000016 /* Models.swift */,
+				AA000017 /* ProjectStore.swift */,
+				AA000013 /* OllamaService.swift */,
+				AA00001B /* AudioService.swift */,
+				AA00001C /* TelegramService.swift */,
+				AA00001D /* WebSearchService.swift */,
+				AA00001E /* SoundClassifierService.swift */,
+				AA00001F /* TTSService.swift */,
+				AA000012 /* ContentView.swift */,
+				AA000018 /* SidebarView.swift */,
+				AA00001A /* ChatView.swift */,
+				AA000019 /* InstructionsView.swift */,
+				CC000003 /* SettingsView.swift */,
+				AA000014 /* OllamaChat.entitlements */,
+				AA000015 /* Info.plist */,
+			);
+			path = OllamaChat;
+			sourceTree = "<group>";
+		};
+		AA000032 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AA000010 /* OllamaChat.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AA000040 /* OllamaChat */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA000060;
+			buildPhases = (
+				AA000050 /* Sources */,
+				AA000020 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OllamaChat;
+			packageProductDependencies = (
+				BB000001 /* WhisperKit */,
+				BB000004 /* TTSKit */,
+				BB000003 /* MarkdownUI */,
+			);
+			productName = OllamaChat;
+			productReference = AA000010;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AA000070 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1500;
+				LastUpgradeCheck = 1500;
+			};
+			buildConfigurationList = AA000080;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = AA000030;
+			packageReferences = (
+				BB000000 /* XCRemoteSwiftPackageReference "WhisperKit" */,
+				BB000002 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */,
+			);
+			productRefGroup = AA000032;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AA000040 /* OllamaChat */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AA000050 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA000001 /* OllamaChatApp.swift in Sources */,
+				AA000004 /* Models.swift in Sources */,
+				AA000005 /* ProjectStore.swift in Sources */,
+				AA000003 /* OllamaService.swift in Sources */,
+				AA000009 /* AudioService.swift in Sources */,
+				AA00000C /* TelegramService.swift in Sources */,
+				AA00000D /* WebSearchService.swift in Sources */,
+				AA00000E /* SoundClassifierService.swift in Sources */,
+				CC000001 /* TTSService.swift in Sources */,
+				CC000002 /* SettingsView.swift in Sources */,
+				AA000002 /* ContentView.swift in Sources */,
+				AA000006 /* SidebarView.swift in Sources */,
+				AA000008 /* ChatView.swift in Sources */,
+				AA000007 /* InstructionsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		AA000081 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AA000082 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		AA000061 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = OllamaChat/OllamaChat.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OllamaChat/Info.plist;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMainNibFile = "";
+				INFOPLIST_KEY_NSPrincipalClass = "";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ollama.chat;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		AA000062 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = OllamaChat/OllamaChat.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OllamaChat/Info.plist;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMainNibFile = "";
+				INFOPLIST_KEY_NSPrincipalClass = "";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ollama.chat;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AA000080 /* Build configuration list for PBXProject "OllamaChat" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA000081 /* Debug */,
+				AA000082 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA000060 /* Build configuration list for PBXNativeTarget "OllamaChat" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA000061 /* Debug */,
+				AA000062 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		BB000000 /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/WhisperKit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.9.0;
+			};
+		};
+		BB000002 /* XCRemoteSwiftPackageReference "swift-markdown-ui" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/gonzalezreal/swift-markdown-ui.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		BB000001 /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB000000;
+			productName = WhisperKit;
+		};
+		BB000004 /* TTSKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB000000;
+			productName = TTSKit;
+		};
+		BB000003 /* MarkdownUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB000002;
+			productName = MarkdownUI;
+		};
+/* End XCSwiftPackageProductDependency section */
+
+	};
+	rootObject = AA000070 /* Project object */;
+}

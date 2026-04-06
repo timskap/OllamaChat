@@ -1,0 +1,805 @@
+import AppKit
+import MarkdownUI
+import SwiftUI
+
+struct ChatView: View {
+    @ObservedObject var store: ProjectStore
+    @ObservedObject var ollama: OllamaService
+    @ObservedObject var audio: AudioService
+    @ObservedObject var soundClassifier: SoundClassifierService
+    @ObservedObject var tts: TTSService
+    let projectID: UUID
+    let chatID: UUID
+
+    @State private var input = ""
+    @State private var thinkingEnabled = true
+    @State private var webSearchEnabled = false
+    @State private var attachedImage: NSImage?
+    @State private var attachedImageBase64: String?
+    @State private var autoSpeak = false
+    @FocusState private var inputFocused: Bool
+
+    private var messages: [Message] {
+        guard let pIdx = store.projects.firstIndex(where: { $0.id == projectID }),
+              let cIdx = store.projects[pIdx].chats.firstIndex(where: { $0.id == chatID }) else { return [] }
+        return store.projects[pIdx].chats[cIdx].messages
+    }
+
+    private var instructions: String {
+        store.projects.first { $0.id == projectID }?.instructions ?? ""
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        ForEach(messages) { message in
+                            MessageBubble(
+                                message: message,
+                                isThinking: ollama.isThinking && message.id == messages.last?.id
+                            )
+                            .id(message.id)
+                        }
+                    }
+                    .padding()
+                }
+                .onChange(of: messages.last?.content) {
+                    scrollToBottom(proxy)
+                }
+                .onChange(of: messages.last?.thinking) {
+                    scrollToBottom(proxy)
+                }
+            }
+
+            Divider()
+
+            // Status bar
+            if ollama.isGenerating {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    if ollama.isSearching {
+                        Text("Searching the web...")
+                    } else if ollama.isThinking {
+                        Text("Thinking...")
+                    } else {
+                        Text("Generating...")
+                    }
+                    Spacer()
+                    Button(action: { ollama.cancelGeneration() }) {
+                        HStack(spacing: 3) {
+                            Image(systemName: "stop.fill")
+                                .font(.caption2)
+                            Text("Stop")
+                                .font(.caption)
+                        }
+                        .foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
+            }
+
+            // Toggles row
+            HStack(spacing: 12) {
+                Button(action: { thinkingEnabled.toggle() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "brain")
+                            .font(.caption)
+                        Text("Think")
+                            .font(.caption)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(thinkingEnabled ? Color.purple.opacity(0.15) : Color.clear)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(thinkingEnabled ? Color.purple.opacity(0.3) : Color.secondary.opacity(0.2)))
+                }
+                .buttonStyle(.plain)
+                .help(thinkingEnabled ? "Thinking: ON" : "Thinking: OFF")
+
+                Button(action: { webSearchEnabled.toggle() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "globe")
+                            .font(.caption)
+                        Text("Web")
+                            .font(.caption)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(webSearchEnabled ? Color.blue.opacity(0.15) : Color.clear)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(webSearchEnabled ? Color.blue.opacity(0.3) : Color.secondary.opacity(0.2)))
+                }
+                .buttonStyle(.plain)
+                .help(webSearchEnabled ? "Web search: ON" : "Web search: OFF")
+
+                Button(action: { toggleSoundClassifier() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "ear")
+                            .font(.caption)
+                        Text("Sounds")
+                            .font(.caption)
+                        if soundClassifier.isAutoRecording {
+                            Circle().fill(.red).frame(width: 6, height: 6)
+                        } else if soundClassifier.isListening && !soundClassifier.topSound.isEmpty {
+                            Text("· \(soundClassifier.topSound)")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(soundClassifier.isListening ? Color.green.opacity(0.15) : Color.clear)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(soundClassifier.isListening ? Color.green.opacity(0.3) : Color.secondary.opacity(0.2)))
+                }
+                .buttonStyle(.plain)
+                .help(soundClassifier.isListening ? "Listening (auto voice-to-chat)" : "Sound detection: OFF")
+
+                Button(action: {
+                    autoSpeak.toggle()
+                    if autoSpeak && !tts.isModelLoaded { Task { await tts.loadModel() } }
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: autoSpeak ? "speaker.wave.2.fill" : "speaker.wave.2")
+                            .font(.caption)
+                        Text("Speak")
+                            .font(.caption)
+                        if tts.isSpeaking {
+                            Image(systemName: "waveform")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                                .symbolEffect(.variableColor.iterative)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(autoSpeak ? Color.orange.opacity(0.15) : Color.clear)
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(autoSpeak ? Color.orange.opacity(0.3) : Color.secondary.opacity(0.2)))
+                }
+                .buttonStyle(.plain)
+                .help(autoSpeak ? "Auto-speak responses: ON" : "Auto-speak responses: OFF")
+
+                Spacer()
+            }
+            .padding(.horizontal, 12)
+            .padding(.top, 8)
+
+            // Image preview
+            if let img = attachedImage {
+                HStack {
+                    Image(nsImage: img)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxHeight: 80)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                        .overlay(alignment: .topTrailing) {
+                            Button(action: { attachedImage = nil; attachedImageBase64 = nil }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.white)
+                                    .background(Circle().fill(.black.opacity(0.5)))
+                            }
+                            .buttonStyle(.plain)
+                            .offset(x: 4, y: -4)
+                        }
+                    Spacer()
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 4)
+            }
+
+            // Recording overlay
+            if audio.isRecording {
+                RecordingBar(audio: audio, onStop: {
+                    Task {
+                        if let text = await audio.stopRecording() {
+                            input += (input.isEmpty ? "" : " ") + text
+                        }
+                    }
+                }, onCancel: {
+                    audio.cancelRecording()
+                })
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+                .padding(.top, 4)
+            } else {
+                // Input row
+                HStack(alignment: .bottom, spacing: 8) {
+                    // Left buttons
+                    VStack(spacing: 6) {
+                        Button(action: { store.clearChat(projectID: projectID, chatID: chatID) }) {
+                            Image(systemName: "trash")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Clear chat")
+                        .disabled(ollama.isGenerating)
+
+                        Button(action: pickImage) {
+                            Image(systemName: attachedImage != nil ? "photo.fill" : "photo")
+                                .foregroundStyle(attachedImage != nil ? .blue : .primary)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Attach image")
+                        .disabled(ollama.isGenerating)
+
+                        Button(action: { audio.startRecording() }) {
+                            ZStack {
+                                if audio.isTranscribing {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Image(systemName: "mic")
+                                }
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Voice input")
+                        .disabled(!audio.isModelLoaded || audio.isTranscribing || ollama.isGenerating)
+                    }
+
+                    // Expandable text editor
+                    ExpandingTextEditor(text: $input, onSubmit: sendMessage)
+                        .disabled(ollama.isGenerating)
+
+                    // Send button
+                    Button(action: sendMessage) {
+                        Image(systemName: "paperplane.fill")
+                    }
+                    .buttonStyle(.borderless)
+                    .disabled((input.trimmingCharacters(in: .whitespaces).isEmpty && attachedImage == nil) || ollama.isGenerating)
+                    .keyboardShortcut(.return, modifiers: .command)
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 12)
+                .padding(.top, 4)
+            }
+        }
+        .onAppear {
+            inputFocused = true
+        }
+        .onDrop(of: [.image, .fileURL], isTargeted: nil) { providers in
+            handleDrop(providers)
+            return true
+        }
+        .onChange(of: ollama.isGenerating) { wasGenerating, isGenerating in
+            // Auto-speak the last assistant message when generation finishes
+            if wasGenerating && !isGenerating && autoSpeak {
+                if let lastMsg = messages.last, lastMsg.role == "assistant", !lastMsg.content.isEmpty {
+                    let lang = ollama.detectedLanguage.isEmpty ? nil : ollama.detectedLanguage
+                    tts.speak(lastMsg.content, language: lang)
+                }
+            }
+        }
+    }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy) {
+        if let lastID = messages.last?.id {
+            withAnimation(.easeOut(duration: 0.15)) {
+                proxy.scrollTo(lastID, anchor: .bottom)
+            }
+        }
+    }
+
+    private func sendMessage() {
+        let text = input.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty || attachedImage != nil else { return }
+        let messageText = text.isEmpty ? "What's in this image?" : text
+        let imgBase64 = attachedImageBase64
+        input = ""
+        attachedImage = nil
+        attachedImageBase64 = nil
+        Task {
+            await ollama.send(
+                messageText,
+                imageBase64: imgBase64,
+                instructions: instructions,
+                thinkingEnabled: thinkingEnabled,
+                webSearchEnabled: webSearchEnabled,
+                store: store,
+                projectID: projectID,
+                chatID: chatID
+            )
+        }
+    }
+
+    private func pickImage() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        if panel.runModal() == .OK, let url = panel.url {
+            loadImage(from: url)
+        }
+    }
+
+    private func handleDrop(_ providers: [NSItemProvider]) {
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier("public.file-url") {
+                provider.loadItem(forTypeIdentifier: "public.file-url") { data, _ in
+                    guard let data = data as? Data,
+                          let url = URL(dataRepresentation: data, relativeTo: nil) else { return }
+                    DispatchQueue.main.async { loadImage(from: url) }
+                }
+                return
+            }
+            if provider.canLoadObject(ofClass: NSImage.self) {
+                provider.loadObject(ofClass: NSImage.self) { image, _ in
+                    guard let image = image as? NSImage else { return }
+                    DispatchQueue.main.async { setImage(image) }
+                }
+                return
+            }
+        }
+    }
+
+    private func loadImage(from url: URL) {
+        guard let image = NSImage(contentsOf: url) else { return }
+        setImage(image)
+    }
+
+    private func setImage(_ image: NSImage) {
+        attachedImage = image
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff),
+              let jpeg = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else { return }
+        attachedImageBase64 = jpeg.base64EncodedString()
+    }
+
+    private func toggleSoundClassifier() {
+        if soundClassifier.isListening {
+            soundClassifier.stop()
+        } else {
+            soundClassifier.onSpeechTranscribed = { [self] text in
+                guard !ollama.isGenerating else { return }
+                // Auto-send transcribed speech
+                Task {
+                    await ollama.send(
+                        text,
+                        instructions: instructions,
+                        thinkingEnabled: thinkingEnabled,
+                        webSearchEnabled: webSearchEnabled,
+                        store: store,
+                        projectID: projectID,
+                        chatID: chatID
+                    )
+                }
+            }
+            soundClassifier.start(audioService: audio)
+        }
+    }
+}
+
+// MARK: - Message Bubble
+
+struct MessageBubble: View {
+    let message: Message
+    var isThinking: Bool = false
+
+    var isUser: Bool { message.role == "user" }
+
+    var body: some View {
+        HStack {
+            if isUser { Spacer(minLength: 60) }
+
+            VStack(alignment: isUser ? .trailing : .leading, spacing: 4) {
+                Text(isUser ? "You" : "Gemma")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if !isUser && !message.thinking.isEmpty {
+                    ThinkingBlock(text: message.thinking, isStreaming: isThinking)
+                }
+
+                if !isUser && isThinking && message.content.isEmpty && message.thinking.isEmpty {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Thinking...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(10)
+                    .background(Color.secondary.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                }
+
+                // Image thumbnail
+                if let imgBase64 = message.imageBase64, !imgBase64.isEmpty,
+                   let imgData = Data(base64Encoded: imgBase64),
+                   let nsImage = NSImage(data: imgData) {
+                    Image(nsImage: nsImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 200, maxHeight: 150)
+                        .clipShape(RoundedRectangle(cornerRadius: 10))
+                }
+
+                if !message.content.isEmpty || isUser {
+                    if isUser {
+                        Text(message.content.isEmpty ? "..." : message.content)
+                            .textSelection(.enabled)
+                            .padding(10)
+                            .background(Color.accentColor.opacity(0.15))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    } else {
+                        Markdown(message.content)
+                            .markdownTheme(.chat)
+                            .textSelection(.enabled)
+                            .padding(10)
+                            .background(Color.secondary.opacity(0.1))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                    }
+                }
+            }
+
+            if !isUser { Spacer(minLength: 60) }
+        }
+    }
+}
+
+// MARK: - Thinking Block
+
+struct ThinkingBlock: View {
+    let text: String
+    var isStreaming: Bool = false
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button(action: { withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() } }) {
+                HStack(spacing: 6) {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.caption2)
+                        .frame(width: 10)
+
+                    if isStreaming {
+                        ProgressView()
+                            .controlSize(.mini)
+                    }
+
+                    Text(isStreaming ? "Thinking..." : "Thought process")
+                        .font(.caption)
+
+                    Spacer()
+                }
+                .foregroundStyle(.secondary)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                Text(text)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .padding(.top, 6)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(10)
+        .background(Color.purple.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+    }
+}
+
+// MARK: - Expanding Text Editor
+
+struct ExpandingTextEditor: NSViewRepresentable {
+    @Binding var text: String
+    var onSubmit: () -> Void
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        let textView = NSTextView()
+
+        textView.delegate = context.coordinator
+        textView.isRichText = false
+        textView.allowsUndo = true
+        textView.font = .systemFont(ofSize: 14)
+        textView.textContainerInset = NSSize(width: 6, height: 8)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.widthTracksTextView = true
+        textView.textContainer?.lineFragmentPadding = 4
+        textView.backgroundColor = .textBackgroundColor
+        textView.drawsBackground = true
+        textView.string = text
+
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .bezelBorder
+
+        // Dynamic height constraints
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        let minH = scrollView.heightAnchor.constraint(greaterThanOrEqualToConstant: 34)
+        let maxH = scrollView.heightAnchor.constraint(lessThanOrEqualToConstant: 150)
+        minH.isActive = true
+        maxH.isActive = true
+
+        context.coordinator.scrollView = scrollView
+        context.coordinator.textView = textView
+
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? NSTextView else { return }
+        if textView.string != text {
+            let selectedRanges = textView.selectedRanges
+            textView.string = text
+            textView.selectedRanges = selectedRanges
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: ExpandingTextEditor
+        weak var textView: NSTextView?
+        weak var scrollView: NSScrollView?
+
+        init(_ parent: ExpandingTextEditor) {
+            self.parent = parent
+        }
+
+        func textDidChange(_ notification: Notification) {
+            guard let textView else { return }
+            parent.text = textView.string
+            invalidateHeight()
+        }
+
+        func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                let event = NSApp.currentEvent
+                let shiftPressed = event?.modifierFlags.contains(.shift) ?? false
+                if shiftPressed {
+                    // Shift+Enter: insert newline
+                    textView.insertNewlineIgnoringFieldEditor(nil)
+                    return true
+                } else {
+                    // Enter: send message
+                    parent.onSubmit()
+                    return true
+                }
+            }
+            return false
+        }
+
+        private func invalidateHeight() {
+            guard let textView, let scrollView else { return }
+            textView.layoutManager?.ensureLayout(for: textView.textContainer!)
+            let usedRect = textView.layoutManager?.usedRect(for: textView.textContainer!) ?? .zero
+            let inset = textView.textContainerInset
+            let contentHeight = usedRect.height + inset.height * 2 + 4
+            let clamped = min(max(contentHeight, 34), 150)
+
+            // Update scroll view frame if needed
+            if abs(scrollView.frame.height - clamped) > 1 {
+                scrollView.invalidateIntrinsicContentSize()
+            }
+        }
+    }
+}
+
+// MARK: - Recording Bar
+
+struct RecordingBar: View {
+    @ObservedObject var audio: AudioService
+    let onStop: () -> Void
+    let onCancel: () -> Void
+
+    @State private var elapsed: TimeInterval = 0
+    @State private var pulseScale: CGFloat = 1.0
+    @State private var timer: Timer?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // Cancel
+            Button(action: onCancel) {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Cancel recording")
+
+            // Pulsing dot
+            Circle()
+                .fill(.red)
+                .frame(width: 10, height: 10)
+                .scaleEffect(pulseScale)
+                .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: pulseScale)
+
+            // Timer
+            Text(formatTime(elapsed))
+                .font(.body.monospacedDigit())
+                .foregroundStyle(.primary)
+
+            Spacer()
+
+            Text("Recording...")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            // Stop & transcribe
+            Button(action: onStop) {
+                HStack(spacing: 4) {
+                    Image(systemName: "stop.circle.fill")
+                        .font(.title2)
+                    Text("Done")
+                        .font(.callout.bold())
+                }
+                .foregroundStyle(.red)
+            }
+            .buttonStyle(.plain)
+            .help("Stop and transcribe")
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .background(Color.red.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .onAppear {
+            elapsed = 0
+            pulseScale = 1.3
+            timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+                elapsed += 0.1
+            }
+        }
+        .onDisappear {
+            timer?.invalidate()
+            timer = nil
+        }
+    }
+
+    private func formatTime(_ t: TimeInterval) -> String {
+        let mins = Int(t) / 60
+        let secs = Int(t) % 60
+        let tenths = Int((t - Double(Int(t))) * 10)
+        return String(format: "%d:%02d.%d", mins, secs, tenths)
+    }
+}
+
+// MARK: - Chat Markdown Theme
+
+extension Theme {
+    static let chat = Theme()
+        .text {
+            FontSize(14)
+        }
+        .code {
+            FontFamilyVariant(.monospaced)
+            FontSize(.em(0.88))
+            BackgroundColor(Color.chatCodeBg)
+        }
+        .strong {
+            FontWeight(.semibold)
+        }
+        .link {
+            ForegroundColor(.accentColor)
+        }
+        .heading1 { configuration in
+            configuration.label
+                .markdownMargin(top: 8, bottom: 4)
+                .markdownTextStyle {
+                    FontWeight(.bold)
+                    FontSize(.em(1.3))
+                }
+        }
+        .heading2 { configuration in
+            configuration.label
+                .markdownMargin(top: 6, bottom: 4)
+                .markdownTextStyle {
+                    FontWeight(.bold)
+                    FontSize(.em(1.15))
+                }
+        }
+        .heading3 { configuration in
+            configuration.label
+                .markdownMargin(top: 6, bottom: 2)
+                .markdownTextStyle {
+                    FontWeight(.semibold)
+                    FontSize(.em(1.05))
+                }
+        }
+        .paragraph { configuration in
+            configuration.label
+                .fixedSize(horizontal: false, vertical: true)
+                .relativeLineSpacing(.em(0.2))
+                .markdownMargin(top: 0, bottom: 8)
+        }
+        .blockquote { configuration in
+            HStack(spacing: 0) {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(Color.secondary.opacity(0.3))
+                    .relativeFrame(width: .em(0.15))
+                configuration.label
+                    .markdownTextStyle { ForegroundColor(.secondary) }
+                    .relativePadding(.horizontal, length: .em(0.6))
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .codeBlock { configuration in
+            ScrollView(.horizontal, showsIndicators: false) {
+                configuration.label
+                    .fixedSize(horizontal: false, vertical: true)
+                    .relativeLineSpacing(.em(0.15))
+                    .markdownTextStyle {
+                        FontFamilyVariant(.monospaced)
+                        FontSize(.em(0.85))
+                    }
+                    .padding(10)
+            }
+            .background(Color.chatCodeBg)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .markdownMargin(top: 4, bottom: 8)
+        }
+        .listItem { configuration in
+            configuration.label
+                .markdownMargin(top: .em(0.15))
+        }
+        .taskListMarker { configuration in
+            Image(systemName: configuration.isCompleted ? "checkmark.square.fill" : "square")
+                .symbolRenderingMode(.hierarchical)
+                .imageScale(.small)
+                .relativeFrame(minWidth: .em(1.5), alignment: .trailing)
+        }
+        .table { configuration in
+            configuration.label
+                .fixedSize(horizontal: false, vertical: true)
+                .markdownTableBorderStyle(.init(color: .secondary.opacity(0.2)))
+                .markdownMargin(top: 4, bottom: 8)
+        }
+        .tableCell { configuration in
+            configuration.label
+                .markdownTextStyle {
+                    if configuration.row == 0 {
+                        FontWeight(.semibold)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.vertical, 4)
+                .padding(.horizontal, 8)
+        }
+        .thematicBreak {
+            Divider()
+                .markdownMargin(top: 8, bottom: 8)
+        }
+}
+
+extension Color {
+    static let chatCodeBg: Color = {
+        #if canImport(AppKit)
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+                return NSColor(white: 1, alpha: 0.08)
+            } else {
+                return NSColor(white: 0, alpha: 0.05)
+            }
+        })
+        #else
+        return Color(uiColor: UIColor { traitCollection in
+            if traitCollection.userInterfaceStyle == .dark {
+                return UIColor(white: 1, alpha: 0.08)
+            } else {
+                return UIColor(white: 0, alpha: 0.05)
+            }
+        })
+        #endif
+    }()
+}
+

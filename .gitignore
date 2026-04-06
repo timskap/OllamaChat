@@ -1,0 +1,14 @@
+# Build artifacts
+OllamaChat.app/
+OllamaChat.zip
+DerivedData/
+
+# Xcode user data
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+
+# macOS
+.DS_Store
+*.swp

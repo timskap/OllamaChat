@@ -327,13 +327,25 @@ class AudioService: ObservableObject {
         // Step 3: Run speaker diarization
         do {
             let sk = try await ensureSpeakerKit()
-            print("[Diarize] Running diarization...")
-            // Lower threshold to better separate similar voices
-            let diarizeOptions = PyannoteDiarizationOptions(
-                clusterDistanceThreshold: 0.5,
-                minClusterSize: 1
+
+            // First pass: auto-detect speakers
+            print("[Diarize] Running diarization (auto)...")
+            let autoOptions = PyannoteDiarizationOptions(
+                clusterDistanceThreshold: 0.3
             )
-            let diarization = try await sk.diarize(audioArray: audioArray, options: diarizeOptions)
+            var diarization = try await sk.diarize(audioArray: audioArray, options: autoOptions)
+            print("[Diarize] Auto-detected \(diarization.speakerCount) speakers")
+
+            // If only 1 speaker found, retry forcing 2 speakers (common for similar voices)
+            if diarization.speakerCount <= 1 {
+                print("[Diarize] Retrying with forced 2 speakers...")
+                let forcedOptions = PyannoteDiarizationOptions(
+                    numberOfSpeakers: 2,
+                    clusterDistanceThreshold: 0.2
+                )
+                diarization = try await sk.diarize(audioArray: audioArray, options: forcedOptions)
+                print("[Diarize] Forced: \(diarization.speakerCount) speakers")
+            }
             print("[Diarize] Found \(diarization.speakerCount) speakers, \(diarization.segments.count) segments")
 
             // Single speaker — return plain text

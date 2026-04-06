@@ -400,17 +400,40 @@ class TelegramService: ObservableObject {
         let localWAV = tempDir.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
         let ffmpegPaths = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]
         guard let ffmpeg = ffmpegPaths.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
+            print("ffmpeg not found at any known path")
             try? FileManager.default.removeItem(at: localOGA); return nil
         }
+
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffmpeg)
-        process.arguments = ["-i", localOGA.path, "-ar", "16000", "-ac", "1", "-y", localWAV.path]
-        process.standardOutput = FileHandle.nullDevice; process.standardError = FileHandle.nullDevice
-        do { try process.run(); process.waitUntilExit() } catch {
+        process.arguments = ["-i", localOGA.path, "-ar", "16000", "-ac", "1", "-f", "wav", "-y", localWAV.path]
+        process.standardOutput = FileHandle.nullDevice
+
+        // Capture stderr for debugging
+        let errPipe = Pipe()
+        process.standardError = errPipe
+
+        // Inherit PATH so ffmpeg can find its libs
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        process.environment = env
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            print("ffmpeg launch error: \(error)")
             try? FileManager.default.removeItem(at: localOGA); return nil
         }
+
+        if process.terminationStatus != 0 {
+            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            let errStr = String(data: errData, encoding: .utf8) ?? "unknown"
+            print("ffmpeg failed (\(process.terminationStatus)): \(errStr.suffix(300))")
+        }
+
         try? FileManager.default.removeItem(at: localOGA)
-        return process.terminationStatus == 0 ? localWAV : nil
+        return process.terminationStatus == 0 && FileManager.default.fileExists(atPath: localWAV.path) ? localWAV : nil
     }
 
     private func downloadFileAsBase64(token: String, fileId: String) async -> String? {

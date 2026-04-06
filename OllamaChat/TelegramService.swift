@@ -384,29 +384,42 @@ class TelegramService: ObservableObject {
     // MARK: - File Download
 
     private func downloadFile(token: String, fileId: String) async -> URL? {
+        // Step 1: Get file path from Telegram
         let getFileURL = URL(string: "https://api.telegram.org/bot\(token)/getFile?file_id=\(fileId)")!
         guard let (data, _) = try? await URLSession.shared.data(from: getFileURL),
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let ok = json["ok"] as? Bool, ok,
               let result = json["result"] as? [String: Any],
-              let filePath = result["file_path"] as? String else { return nil }
+              let filePath = result["file_path"] as? String else {
+            print("[Voice] Failed to get file path from Telegram for fileId: \(fileId)")
+            return nil
+        }
+        print("[Voice] File path: \(filePath)")
 
+        // Step 2: Download file
         let downloadURL = URL(string: "https://api.telegram.org/file/bot\(token)/\(filePath)")!
         let tempDir = FileManager.default.temporaryDirectory
-        let localOGA = tempDir.appendingPathComponent(UUID().uuidString).appendingPathExtension("oga")
+        let ext = (filePath as NSString).pathExtension.isEmpty ? "oga" : (filePath as NSString).pathExtension
+        let localFile = tempDir.appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
         guard let (fileData, _) = try? await URLSession.shared.data(from: downloadURL),
-              (try? fileData.write(to: localOGA)) != nil else { return nil }
+              (try? fileData.write(to: localFile)) != nil else {
+            print("[Voice] Failed to download file from Telegram")
+            return nil
+        }
+        print("[Voice] Downloaded \(fileData.count) bytes → \(localFile.lastPathComponent)")
 
+        // Step 3: Convert to WAV via ffmpeg
         let localWAV = tempDir.appendingPathComponent(UUID().uuidString).appendingPathExtension("wav")
         let ffmpegPaths = ["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/usr/bin/ffmpeg"]
         guard let ffmpeg = ffmpegPaths.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
-            print("ffmpeg not found at any known path")
-            try? FileManager.default.removeItem(at: localOGA); return nil
+            print("[Voice] ffmpeg not found at any known path")
+            try? FileManager.default.removeItem(at: localFile); return nil
         }
+        print("[Voice] Using ffmpeg: \(ffmpeg)")
 
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffmpeg)
-        process.arguments = ["-i", localOGA.path, "-ar", "16000", "-ac", "1", "-f", "wav", "-y", localWAV.path]
+        process.arguments = ["-i", localFile.path, "-ar", "16000", "-ac", "1", "-f", "wav", "-y", localWAV.path]
         process.standardOutput = FileHandle.nullDevice
 
         // Capture stderr for debugging
@@ -423,7 +436,7 @@ class TelegramService: ObservableObject {
             process.waitUntilExit()
         } catch {
             print("ffmpeg launch error: \(error)")
-            try? FileManager.default.removeItem(at: localOGA); return nil
+            try? FileManager.default.removeItem(at: localFile); return nil
         }
 
         if process.terminationStatus != 0 {
@@ -432,8 +445,13 @@ class TelegramService: ObservableObject {
             print("ffmpeg failed (\(process.terminationStatus)): \(errStr.suffix(300))")
         }
 
-        try? FileManager.default.removeItem(at: localOGA)
-        return process.terminationStatus == 0 && FileManager.default.fileExists(atPath: localWAV.path) ? localWAV : nil
+        try? FileManager.default.removeItem(at: localFile)
+        if process.terminationStatus == 0 && FileManager.default.fileExists(atPath: localWAV.path) {
+            print("[Voice] Converted to WAV successfully")
+            return localWAV
+        }
+        print("[Voice] WAV file not created")
+        return nil
     }
 
     private func downloadFileAsBase64(token: String, fileId: String) async -> String? {

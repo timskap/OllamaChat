@@ -17,6 +17,7 @@ class AudioService: ObservableObject {
     @Published var audioLevel: Float = 0
 
     private var whisperKit: WhisperKit?
+    private var speakerKit: SpeakerKit?
     private var audioEngine: AVAudioEngine?
     private var audioFile: AVAudioFile?
     private var tempURL: URL?
@@ -276,28 +277,68 @@ class AudioService: ObservableObject {
         }
     }
 
+    /// Ensure SpeakerKit is loaded (lazy, once)
+    private func ensureSpeakerKit() async throws -> SpeakerKit {
+        if let existing = speakerKit { return existing }
+        print("[SpeakerKit] Downloading and loading models...")
+        let sk = try await SpeakerKit()
+        speakerKit = sk
+        print("[SpeakerKit] Ready")
+        return sk
+    }
+
     /// Transcribe with speaker diarization — returns formatted dialogue
     func transcribeFileWithSpeakers(at url: URL) async -> String? {
         guard let whisperKit else { return nil }
+
+        // Step 1: Transcribe with word timestamps
+        print("[Diarize] Transcribing with word timestamps...")
+        let options = DecodingOptions(language: "ru", wordTimestamps: true)
+        let transcriptionResults: [TranscriptionResult]
         do {
-            // Transcribe with word-level timestamps
-            let options = DecodingOptions(language: "ru", wordTimestamps: true)
-            let transcriptionResults = try await whisperKit.transcribe(audioPath: url.path, decodeOptions: options)
+            transcriptionResults = try await whisperKit.transcribe(audioPath: url.path, decodeOptions: options)
+        } catch {
+            print("[Diarize] Transcription failed: \(error)")
+            return await transcribeFile(at: url)
+        }
+        guard !transcriptionResults.isEmpty else {
+            print("[Diarize] No transcription results")
+            return nil
+        }
 
-            guard !transcriptionResults.isEmpty else { return nil }
+        let plainText = transcriptionResults.map { $0.text }.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+        print("[Diarize] Transcribed: \(plainText.prefix(100))...")
 
-            // Load audio for diarization
+        // Step 2: Load audio for diarization
+        let audioArray: [Float]
+        do {
             let audioBuffer = try AudioProcessor.loadAudio(fromPath: url.path)
-            let audioArray = Array(UnsafeBufferPointer(start: audioBuffer.floatChannelData?[0], count: Int(audioBuffer.frameLength)))
+            guard let channelData = audioBuffer.floatChannelData?[0] else {
+                print("[Diarize] No audio channel data")
+                return plainText
+            }
+            audioArray = Array(UnsafeBufferPointer(start: channelData, count: Int(audioBuffer.frameLength)))
+            print("[Diarize] Audio loaded: \(audioArray.count) samples (\(String(format: "%.1f", Double(audioArray.count) / 16000))s)")
+        } catch {
+            print("[Diarize] Audio load failed: \(error)")
+            return plainText
+        }
 
-            // Run speaker diarization
-            let speakerKit = try await SpeakerKit()
-            let diarization = try await speakerKit.diarize(audioArray: audioArray)
+        // Step 3: Run speaker diarization
+        do {
+            let sk = try await ensureSpeakerKit()
+            print("[Diarize] Running diarization...")
+            let diarization = try await sk.diarize(audioArray: audioArray)
+            print("[Diarize] Found \(diarization.speakerCount) speakers, \(diarization.segments.count) segments")
 
-            // Merge transcription with speaker info
+            // Single speaker — return plain text
+            if diarization.speakerCount <= 1 {
+                return plainText.isEmpty ? nil : plainText
+            }
+
+            // Step 4: Merge with transcription
             let speakerSegments = diarization.addSpeakerInfo(to: transcriptionResults)
 
-            // Build dialogue format
             var dialogue = ""
             var lastSpeaker = -1
 
@@ -315,17 +356,12 @@ class AudioService: ObservableObject {
                 }
             }
 
-            // If only 1 speaker detected, return plain text
-            if diarization.speakerCount <= 1 {
-                let text = transcriptionResults.map { $0.text }.joined(separator: " ").trimmingCharacters(in: .whitespaces)
-                return text.isEmpty ? nil : text
-            }
-
-            return dialogue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : dialogue.trimmingCharacters(in: .whitespacesAndNewlines)
+            let result = dialogue.trimmingCharacters(in: .whitespacesAndNewlines)
+            print("[Diarize] Result:\n\(result.prefix(200))")
+            return result.isEmpty ? plainText : result
         } catch {
-            print("Diarized transcription error: \(error)")
-            // Fallback to simple transcription
-            return await transcribeFile(at: url)
+            print("[Diarize] Diarization failed: \(error)")
+            return plainText.isEmpty ? nil : plainText
         }
     }
 }

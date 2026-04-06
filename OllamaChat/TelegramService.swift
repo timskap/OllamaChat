@@ -15,6 +15,8 @@ class TelegramService: ObservableObject {
     private var pollingTask: Task<Void, Never>?
     private var thinkingEnabled: Set<String> = []
     private var webSearchEnabled: Set<String> = []
+    /// /whisper mode — just transcribe, no LLM response
+    private var whisperMode: Set<String> = []
     /// Active generation tasks keyed by convKey, for cancellation
     private var activeTasks: [String: Task<Void, Never>] = [:]
 
@@ -536,6 +538,21 @@ class TelegramService: ObservableObject {
             await sendMessage(token: token, chatId: chatId, threadId: threadId, text: "Failed to process voice. Install ffmpeg."); return
         }
         defer { try? FileManager.default.removeItem(at: wavURL) }
+
+        let key = convKey(chatId, threadId)
+
+        // Whisper-only mode: transcribe and return text (with diarization)
+        if whisperMode.contains(key) {
+            let transcription = await audio.transcribeFileWithSpeakers(at: wavURL)
+            if let text = transcription, !text.isEmpty {
+                await sendMessage(token: token, chatId: chatId, threadId: threadId, text: "🎙 Transcription:\n\n\(text)")
+            } else {
+                await sendMessage(token: token, chatId: chatId, threadId: threadId, text: "Could not transcribe voice.")
+            }
+            return
+        }
+
+        // Normal mode: transcribe and send to AI
         guard let transcription = await audio.transcribeFile(at: wavURL), !transcription.isEmpty else {
             await sendMessage(token: token, chatId: chatId, threadId: threadId, text: "Could not transcribe voice."); return
         }
@@ -570,7 +587,7 @@ class TelegramService: ObservableObject {
         }
         if text == "/start" {
             await sendMessage(token: token, chatId: chatId, threadId: threadId,
-                text: "Hello! Commands:\n/thinking — toggle thinking\n/web — toggle web search\n/cancel — cancel generation\n/clear — clear chat")
+                text: "Hello! Commands:\n/thinking — toggle thinking\n/web — toggle web search\n/whisper — transcribe-only mode (no AI reply)\n/cancel — cancel generation\n/clear — clear chat")
             return
         }
         if text.hasPrefix("/thinking") {
@@ -586,6 +603,17 @@ class TelegramService: ObservableObject {
             } else { webSearchEnabled.insert(key)
                 await sendMessage(token: token, chatId: chatId, threadId: threadId, text: "🌐 Web search: ON")
             }; return
+        }
+        if text.hasPrefix("/whisper") {
+            let isOn = whisperMode.contains(key)
+            if isOn {
+                whisperMode.remove(key)
+                await sendMessage(token: token, chatId: chatId, threadId: threadId, text: "🎙 Whisper mode: OFF\nVoice messages will be answered by AI.")
+            } else {
+                whisperMode.insert(key)
+                await sendMessage(token: token, chatId: chatId, threadId: threadId, text: "🎙 Whisper mode: ON\nVoice messages will be transcribed only (with speaker detection).\nNo AI response.")
+            }
+            return
         }
         if text == "/cancel" {
             if let task = activeTasks[key] { task.cancel(); activeTasks.removeValue(forKey: key)

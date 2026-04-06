@@ -23,6 +23,7 @@
 		CC000002 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC000003; };
 		AA00000A /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = BB000001; };
 		AA00000F /* TTSKit in Frameworks */ = {isa = PBXBuildFile; productRef = BB000004; };
+		CC000004 /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = CC000005; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -52,6 +53,7 @@
 			files = (
 				AA00000A /* WhisperKit in Frameworks */,
 				AA00000F /* TTSKit in Frameworks */,
+				CC000004 /* SpeakerKit in Frameworks */,
 				AA00000B /* MarkdownUI in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -116,6 +118,7 @@
 			packageProductDependencies = (
 				BB000001 /* WhisperKit */,
 				BB000004 /* TTSKit */,
+				CC000005 /* SpeakerKit */,
 				BB000003 /* MarkdownUI */,
 			);
 			productName = OllamaChat;
@@ -316,6 +319,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = BB000000;
 			productName = TTSKit;
+		};
+		CC000005 /* SpeakerKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = BB000000;
+			productName = SpeakerKit;
 		};
 		BB000003 /* MarkdownUI */ = {
 			isa = XCSwiftPackageProductDependency;

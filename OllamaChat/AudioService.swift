@@ -1,4 +1,5 @@
 import AVFoundation
+import SpeakerKit
 import SwiftUI
 import WhisperKit
 
@@ -272,6 +273,59 @@ class AudioService: ObservableObject {
         } catch {
             print("Transcription error: \(error)")
             return nil
+        }
+    }
+
+    /// Transcribe with speaker diarization — returns formatted dialogue
+    func transcribeFileWithSpeakers(at url: URL) async -> String? {
+        guard let whisperKit else { return nil }
+        do {
+            // Transcribe with word-level timestamps
+            let options = DecodingOptions(language: "ru", wordTimestamps: true)
+            let transcriptionResults = try await whisperKit.transcribe(audioPath: url.path, decodeOptions: options)
+
+            guard !transcriptionResults.isEmpty else { return nil }
+
+            // Load audio for diarization
+            let audioBuffer = try AudioProcessor.loadAudio(fromPath: url.path)
+            let audioArray = Array(UnsafeBufferPointer(start: audioBuffer.floatChannelData?[0], count: Int(audioBuffer.frameLength)))
+
+            // Run speaker diarization
+            let speakerKit = try await SpeakerKit()
+            let diarization = try await speakerKit.diarize(audioArray: audioArray)
+
+            // Merge transcription with speaker info
+            let speakerSegments = diarization.addSpeakerInfo(to: transcriptionResults)
+
+            // Build dialogue format
+            var dialogue = ""
+            var lastSpeaker = -1
+
+            for segmentGroup in speakerSegments {
+                for segment in segmentGroup {
+                    let speakerId = segment.speaker.speakerId ?? 0
+                    let words = segment.speakerWords.map { $0.wordTiming.word }.joined()
+
+                    if speakerId != lastSpeaker {
+                        if !dialogue.isEmpty { dialogue += "\n" }
+                        dialogue += "Speaker \(speakerId + 1): "
+                        lastSpeaker = speakerId
+                    }
+                    dialogue += words
+                }
+            }
+
+            // If only 1 speaker detected, return plain text
+            if diarization.speakerCount <= 1 {
+                let text = transcriptionResults.map { $0.text }.joined(separator: " ").trimmingCharacters(in: .whitespaces)
+                return text.isEmpty ? nil : text
+            }
+
+            return dialogue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : dialogue.trimmingCharacters(in: .whitespacesAndNewlines)
+        } catch {
+            print("Diarized transcription error: \(error)")
+            // Fallback to simple transcription
+            return await transcribeFile(at: url)
         }
     }
 }

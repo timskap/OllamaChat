@@ -8,11 +8,11 @@ class AudioService: ObservableObject {
     @Published var isTranscribing = false
     @Published var isModelLoaded = false
     @Published var isDownloading = false
-    @Published var downloadProgress: Double = 0 // 0.0 - 1.0
+    @Published var downloadProgress: Double = 0
     @Published var downloadedMB: Int64 = 0
     @Published var totalMB: Int64 = 0
     @Published var statusText: String = ""
-    @Published var audioLevel: Float = 0 // 0.0 - 1.0, updated during recording
+    @Published var audioLevel: Float = 0
 
     private var whisperKit: WhisperKit?
     private var audioEngine: AVAudioEngine?
@@ -21,14 +21,40 @@ class AudioService: ObservableObject {
 
     private let modelVariant = "openai_whisper-large-v3-v20240930_turbo"
 
+    // MARK: - Model Loading
+
     func loadModel() async {
         guard whisperKit == nil else { return }
 
-        // Try up to 2 times (clear cache on first failure)
+        // Check if model is already downloaded locally
+        if let localFolder = findCachedModel() {
+            statusText = "Loading Whisper model..."
+            do {
+                let config = WhisperKitConfig(
+                    model: modelVariant,
+                    modelFolder: localFolder.path,
+                    download: false
+                )
+                whisperKit = try await WhisperKit(config)
+                isModelLoaded = true
+                statusText = ""
+                return
+            } catch {
+                // Cache corrupted — fall through to re-download
+                statusText = "Cache corrupted, re-downloading..."
+                clearModelCache()
+            }
+        }
+
+        // Download model
+        await downloadAndLoadModel()
+    }
+
+    private func downloadAndLoadModel() async {
         for attempt in 0..<2 {
             do {
                 isDownloading = true
-                statusText = attempt == 0 ? "Downloading Whisper model..." : "Retrying download (cleared cache)..."
+                statusText = attempt == 0 ? "Downloading Whisper model..." : "Retrying download..."
                 downloadProgress = 0
 
                 let modelFolder = try await WhisperKit.download(
@@ -52,14 +78,12 @@ class AudioService: ObservableObject {
                     download: false
                 )
                 whisperKit = try await WhisperKit(config)
-
                 isModelLoaded = true
                 statusText = ""
                 return
             } catch {
                 isDownloading = false
                 if attempt == 0 {
-                    // Clear corrupted cache and retry
                     statusText = "Clearing corrupted cache..."
                     clearModelCache()
                     try? await Task.sleep(for: .seconds(1))
@@ -70,17 +94,62 @@ class AudioService: ObservableObject {
         }
     }
 
-    private func clearModelCache() {
-        // HuggingFace Hub default cache location
-        let homeDir = FileManager.default.homeDirectoryForCurrentUser
-        let cacheDir = homeDir.appendingPathComponent(".cache/huggingface/hub")
+    /// Check common HuggingFace Hub cache locations for the model
+    private func findCachedModel() -> URL? {
+        let home = FileManager.default.homeDirectoryForCurrentUser
         let fm = FileManager.default
 
-        guard let contents = try? fm.contentsOfDirectory(at: cacheDir, includingPropertiesForKeys: nil) else { return }
-        for item in contents where item.lastPathComponent.contains("whisperkit") {
-            try? fm.removeItem(at: item)
+        // HuggingFace Hub caches models in these locations
+        let searchPaths = [
+            home.appendingPathComponent("Documents/huggingface/models/argmaxinc/whisperkit-coreml"),
+            home.appendingPathComponent(".cache/huggingface/hub/models--argmaxinc--whisperkit-coreml/snapshots"),
+        ]
+
+        for basePath in searchPaths {
+            let modelPath = basePath.appendingPathComponent(modelVariant)
+            if isValidModelFolder(modelPath) {
+                return modelPath
+            }
+
+            // Also search inside snapshot subdirectories
+            if let snapshots = try? fm.contentsOfDirectory(at: basePath, includingPropertiesForKeys: nil) {
+                for snapshot in snapshots {
+                    let candidate = snapshot.appendingPathComponent(modelVariant)
+                    if isValidModelFolder(candidate) {
+                        return candidate
+                    }
+                }
+            }
+        }
+
+        return nil
+    }
+
+    /// Validate that a folder contains the required Whisper model files
+    private func isValidModelFolder(_ url: URL) -> Bool {
+        let fm = FileManager.default
+        let requiredFiles = ["AudioEncoder.mlmodelc", "MelSpectrogram.mlmodelc", "TextDecoder.mlmodelc", "config.json"]
+        return requiredFiles.allSatisfy { fm.fileExists(atPath: url.appendingPathComponent($0).path) }
+    }
+
+    private func clearModelCache() {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let fm = FileManager.default
+
+        let cacheDirs = [
+            home.appendingPathComponent(".cache/huggingface/hub"),
+            home.appendingPathComponent("Documents/huggingface/models/argmaxinc"),
+        ]
+
+        for dir in cacheDirs {
+            guard let contents = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { continue }
+            for item in contents where item.lastPathComponent.contains("whisperkit") || item.lastPathComponent.contains("whisper") {
+                try? fm.removeItem(at: item)
+            }
         }
     }
+
+    // MARK: - Recording
 
     func startRecording() {
         guard !isRecording else { return }
@@ -97,7 +166,6 @@ class AudioService: ObservableObject {
         do {
             let wavFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
             audioFile = try AVAudioFile(forWriting: url, settings: wavFormat.settings)
-
             let converter = AVAudioConverter(from: recordingFormat, to: wavFormat)
 
             inputNode.installTap(onBus: 0, bufferSize: 4096, format: recordingFormat) { [weak self] buffer, _ in
@@ -109,7 +177,7 @@ class AudioService: ObservableObject {
                     var sum: Float = 0
                     for i in 0..<count { sum += channelData[i] * channelData[i] }
                     let rms = sqrt(sum / Float(max(count, 1)))
-                    let level = min(rms * 5, 1.0) // amplify for UI
+                    let level = min(rms * 5, 1.0)
                     Task { @MainActor in self.audioLevel = level }
                 }
 
@@ -169,6 +237,8 @@ class AudioService: ObservableObject {
         }
     }
 
+    // MARK: - Transcription
+
     private func transcribe(url: URL) async -> String? {
         guard let whisperKit else { return nil }
         isTranscribing = true
@@ -185,8 +255,7 @@ class AudioService: ObservableObject {
         }
     }
 
-    /// Transcribe an audio file at the given URL (public, for use by TelegramService etc.)
-    /// The file must be in a format AVFoundation can read (WAV, M4A, MP3, CAF, etc.)
+    /// Transcribe an audio file (public, for TelegramService etc.)
     func transcribeFile(at url: URL) async -> String? {
         guard let whisperKit else { return nil }
         do {

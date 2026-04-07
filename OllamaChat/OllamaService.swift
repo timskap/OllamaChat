@@ -1,3 +1,4 @@
+
 import Foundation
 
 @MainActor
@@ -88,28 +89,28 @@ class OllamaService: ObservableObject {
             systemPrompt += (systemPrompt.isEmpty ? "" : "\n\n") + langInstruction
             payload.append(["role": "system", "content": systemPrompt])
 
-            var hasImages = false
+            // Check if model likely supports vision (only official gemma4 does)
+            let supportsVision = self.selectedModel.hasPrefix("gemma4:") && !self.selectedModel.contains("heretic")
+
             for msg in chatMessages.dropLast() {
                 var entry: [String: Any] = ["role": msg.role, "content": msg.content]
-                if let img = msg.imageBase64, !img.isEmpty {
+                if supportsVision, let img = msg.imageBase64, !img.isEmpty {
                     entry["images"] = [img]
-                    hasImages = true
                 }
                 payload.append(entry)
             }
 
             guard let url = URL(string: "\(self.baseURL)/api/chat") else { return }
 
-            // Try sending
-            print("[Ollama] Sending to \(self.selectedModel), messages: \(payload.count), images: \(hasImages), think: \(thinkingEnabled)")
+            print("[Ollama] Sending to \(self.selectedModel), messages: \(payload.count), vision: \(supportsVision), think: \(thinkingEnabled)")
 
             let success = await self.doStream(
                 url: url, payload: payload, thinkingEnabled: thinkingEnabled,
                 store: store, projectID: projectID, chatID: chatID
             )
 
-            // If failed with images, retry without (model may not support vision)
-            if !success && hasImages {
+            // If failed, retry without images as fallback
+            if !success {
                 print("[Ollama] Retrying without images...")
                 let plainPayload: [[String: Any]] = payload.map { entry in
                     var clean = entry

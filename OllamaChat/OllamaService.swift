@@ -6,10 +6,32 @@ class OllamaService: ObservableObject {
     @Published var isThinking = false
     @Published var isSearching = false
     @Published var detectedLanguage: String = ""
+    @Published var selectedModel: String {
+        didSet { UserDefaults.standard.set(selectedModel, forKey: "ollamaModel") }
+    }
+    @Published var availableModels: [String] = []
 
     private let baseURL = "http://localhost:11434"
-    private var model = "gemma4:26b"
     private var currentTask: Task<Void, Never>?
+
+    init() {
+        self.selectedModel = UserDefaults.standard.string(forKey: "ollamaModel") ?? "gemma4:26b"
+        Task { await fetchModels() }
+    }
+
+    /// Fetch available models from Ollama
+    func fetchModels() async {
+        guard let url = URL(string: "\(baseURL)/api/tags") else { return }
+        guard let (data, _) = try? await URLSession.shared.data(from: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let models = json["models"] as? [[String: Any]] else { return }
+        let names = models.compactMap { $0["name"] as? String }.sorted()
+        availableModels = names
+        // If selected model not in list, pick first available
+        if !names.contains(selectedModel), let first = names.first {
+            selectedModel = first
+        }
+    }
 
     func send(
         _ text: String,
@@ -80,7 +102,7 @@ class OllamaService: ObservableObject {
             }
 
             let body: [String: Any] = [
-                "model": self.model,
+                "model": self.selectedModel,
                 "messages": payload,
                 "stream": true,
                 "think": thinkingEnabled

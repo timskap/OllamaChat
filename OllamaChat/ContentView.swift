@@ -45,7 +45,7 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView(audio: audio, tts: tts, telegram: telegram, store: store)
+            SettingsView(audio: audio, tts: tts, ollama: ollama, telegram: telegram, store: store)
         }
         .frame(minWidth: 600, minHeight: 400)
         .onAppear {

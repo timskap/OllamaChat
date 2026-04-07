@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var audio: AudioService
     @ObservedObject var tts: TTSService
+    @ObservedObject var ollama: OllamaService
     @ObservedObject var telegram: TelegramService
     @ObservedObject var store: ProjectStore
     @Environment(\.dismiss) private var dismiss
@@ -136,7 +137,42 @@ struct SettingsView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 12))
 
                 InfoCard(title: "Apple Sound Classifier", subtitle: "300+ sound categories · Built-in, no download", icon: "ear", color: .green, badge: "Ready")
-                InfoCard(title: "Ollama — Gemma 4 26B", subtitle: "Chat model · Managed by Ollama separately", icon: "brain.head.profile", color: .purple, badge: "External")
+
+                // Ollama model selector
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "brain.head.profile").font(.title3).foregroundStyle(.purple).frame(width: 28)
+                        Text("Ollama Chat Model").font(.headline)
+                        Spacer()
+                        Button(action: { Task { await ollama.fetchModels() } }) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.caption)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Refresh model list")
+                    }
+
+                    if ollama.availableModels.isEmpty {
+                        HStack(spacing: 6) {
+                            Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                            Text("Ollama not running or no models found. Start Ollama and pull a model.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    } else {
+                        Picker("Model", selection: $ollama.selectedModel) {
+                            ForEach(ollama.availableModels, id: \.self) { model in
+                                Text(model).tag(model)
+                            }
+                        }
+
+                        Text("Selected model is used for both desktop chat and Telegram bot.")
+                            .font(.caption).foregroundStyle(.secondary)
+
+                        Text("To add models: `ollama pull model_name`")
+                            .font(.caption).foregroundStyle(.tertiary)
+                    }
+                }
+                .padding(16).background(Color.secondary.opacity(0.05)).clipShape(RoundedRectangle(cornerRadius: 12))
             }
             .padding(20)
         }

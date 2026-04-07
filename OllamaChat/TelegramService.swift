@@ -21,7 +21,9 @@ class TelegramService: ObservableObject {
     private var activeTasks: [String: Task<Void, Never>] = [:]
 
     private let ollamaURL = "http://localhost:11434/api/chat"
-    private let ollamaModel = "gemma4:26b"
+    private var ollamaModel: String {
+        UserDefaults.standard.string(forKey: "ollamaModel") ?? "gemma4:26b"
+    }
     private let streamEditInterval: TimeInterval = 1.5
 
     private var botProjectID: UUID?

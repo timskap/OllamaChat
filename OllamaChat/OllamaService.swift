@@ -19,7 +19,6 @@ class OllamaService: ObservableObject {
         Task { await fetchModels() }
     }
 
-    /// Fetch available models from Ollama
     func fetchModels() async {
         guard let url = URL(string: "\(baseURL)/api/tags") else { return }
         guard let (data, _) = try? await URLSession.shared.data(from: url),
@@ -27,7 +26,6 @@ class OllamaService: ObservableObject {
               let models = json["models"] as? [[String: Any]] else { return }
         let names = models.compactMap { $0["name"] as? String }.sorted()
         availableModels = names
-        // If selected model not in list, pick first available
         if !names.contains(selectedModel), let first = names.first {
             selectedModel = first
         }
@@ -86,76 +84,42 @@ class OllamaService: ObservableObject {
             if !searchContext.isEmpty {
                 systemPrompt += (systemPrompt.isEmpty ? "" : "\n\n") + searchContext
             }
-
-            // Inject language tag instruction for TTS
             let langInstruction = "IMPORTANT: Start every response with a language tag like [ru-RU] or [en-US] matching the language you respond in. This tag must be the very first characters of your response. Never explain or mention this tag."
             systemPrompt += (systemPrompt.isEmpty ? "" : "\n\n") + langInstruction
-
             payload.append(["role": "system", "content": systemPrompt])
 
+            var hasImages = false
             for msg in chatMessages.dropLast() {
                 var entry: [String: Any] = ["role": msg.role, "content": msg.content]
                 if let img = msg.imageBase64, !img.isEmpty {
                     entry["images"] = [img]
+                    hasImages = true
                 }
                 payload.append(entry)
             }
 
-            let body: [String: Any] = [
-                "model": self.selectedModel,
-                "messages": payload,
-                "stream": true,
-                "think": thinkingEnabled
-            ]
+            guard let url = URL(string: "\(self.baseURL)/api/chat") else { return }
 
-            guard let url = URL(string: "\(self.baseURL)/api/chat"),
-                  let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return }
+            // Try sending
+            print("[Ollama] Sending to \(self.selectedModel), messages: \(payload.count), images: \(hasImages), think: \(thinkingEnabled)")
 
-            var request = URLRequest(url: url)
-            request.httpMethod = "POST"
-            request.httpBody = jsonData
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            let success = await self.doStream(
+                url: url, payload: payload, thinkingEnabled: thinkingEnabled,
+                store: store, projectID: projectID, chatID: chatID
+            )
 
-            do {
-                let (stream, _) = try await URLSession.shared.bytes(for: request)
-                var accContent = ""
-                var accThinking = ""
-                var langParsed = false
-
-                for try await line in stream.lines {
-                    if Task.isCancelled {
-                        store.updateLastMessage(projectID: projectID, chatID: chatID, content: Self.stripLangTag(accContent) + "\n\n⚠️ _Cancelled_")
-                        return
-                    }
-
-                    guard let data = line.data(using: .utf8),
-                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                          let msg = json["message"] as? [String: Any] else { continue }
-
-                    if let thinkToken = msg["thinking"] as? String, !thinkToken.isEmpty {
-                        accThinking += thinkToken
-                        store.updateLastMessage(projectID: projectID, chatID: chatID, thinking: accThinking)
-                    }
-
-                    if let token = msg["content"] as? String, !token.isEmpty {
-                        await MainActor.run { if self.isThinking { self.isThinking = false } }
-                        accContent += token
-
-                        // Parse language tag from first tokens
-                        if !langParsed, let lang = Self.extractLangTag(accContent) {
-                            langParsed = true
-                            await MainActor.run { self.detectedLanguage = lang }
-                        }
-
-                        store.updateLastMessage(projectID: projectID, chatID: chatID, content: Self.stripLangTag(accContent))
-                    }
-
-                    if let done = json["done"] as? Bool, done { break }
+            // If failed with images, retry without (model may not support vision)
+            if !success && hasImages {
+                print("[Ollama] Retrying without images...")
+                let plainPayload: [[String: Any]] = payload.map { entry in
+                    var clean = entry
+                    clean.removeValue(forKey: "images")
+                    return clean
                 }
-            } catch {
-                if !Task.isCancelled {
-                    store.updateLastMessage(projectID: projectID, chatID: chatID, content: "[Error: \(error.localizedDescription)]")
-                }
+                let _ = await self.doStream(
+                    url: url, payload: plainPayload, thinkingEnabled: thinkingEnabled,
+                    store: store, projectID: projectID, chatID: chatID
+                )
             }
         }
 
@@ -169,27 +133,97 @@ class OllamaService: ObservableObject {
         currentTask = nil
     }
 
+    // MARK: - Streaming
+
+    /// Returns true on success, false on HTTP error (for retry logic)
+    private func doStream(
+        url: URL, payload: [[String: Any]], thinkingEnabled: Bool,
+        store: ProjectStore, projectID: UUID, chatID: UUID
+    ) async -> Bool {
+        let body: [String: Any] = [
+            "model": self.selectedModel,
+            "messages": payload,
+            "stream": true,
+            "think": thinkingEnabled
+        ]
+
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return false }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = jsonData
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        do {
+            let (stream, response) = try await URLSession.shared.bytes(for: request)
+
+            if let http = response as? HTTPURLResponse, http.statusCode != 200 {
+                var errBody = ""
+                for try await line in stream.lines { errBody += line }
+                print("[Ollama] HTTP \(http.statusCode): \(errBody.prefix(300))")
+                return false
+            }
+
+            var accContent = ""
+            var accThinking = ""
+            var langParsed = false
+
+            for try await line in stream.lines {
+                if Task.isCancelled {
+                    store.updateLastMessage(projectID: projectID, chatID: chatID, content: Self.stripLangTag(accContent) + "\n\n⚠️ _Cancelled_")
+                    return true
+                }
+
+                guard let data = line.data(using: .utf8),
+                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let msg = json["message"] as? [String: Any] else { continue }
+
+                if let thinkToken = msg["thinking"] as? String, !thinkToken.isEmpty {
+                    accThinking += thinkToken
+                    store.updateLastMessage(projectID: projectID, chatID: chatID, thinking: accThinking)
+                }
+
+                if let token = msg["content"] as? String, !token.isEmpty {
+                    await MainActor.run { if self.isThinking { self.isThinking = false } }
+                    accContent += token
+
+                    if !langParsed, let lang = Self.extractLangTag(accContent) {
+                        langParsed = true
+                        await MainActor.run { self.detectedLanguage = lang }
+                    }
+
+                    store.updateLastMessage(projectID: projectID, chatID: chatID, content: Self.stripLangTag(accContent))
+                }
+
+                if let done = json["done"] as? Bool, done { break }
+            }
+            return true
+        } catch {
+            print("[Ollama] Error: \(error)")
+            if !Task.isCancelled {
+                store.updateLastMessage(projectID: projectID, chatID: chatID, content: "[Error: \(error.localizedDescription)]")
+            }
+            return false
+        }
+    }
+
     // MARK: - Language Tag Helpers
 
-    /// Extract language tag like "ru-RU" from "[ru-RU] text..."
     static func extractLangTag(_ text: String) -> String? {
         guard text.hasPrefix("["),
               let end = text.firstIndex(of: "]") else { return nil }
         let tag = String(text[text.index(after: text.startIndex)..<end])
-        // Validate it looks like a locale: xx-XX or xx
         if tag.count >= 2 && tag.count <= 10 && tag.first?.isLetter == true {
             return tag
         }
         return nil
     }
 
-    /// Strip the leading [xx-XX] tag from text
     static func stripLangTag(_ text: String) -> String {
         guard text.hasPrefix("["),
               let end = text.firstIndex(of: "]") else { return text }
         let after = text.index(after: end)
         var result = String(text[after...])
-        // Remove leading whitespace/newline after tag
         while result.first == " " || result.first == "\n" {
             result.removeFirst()
         }

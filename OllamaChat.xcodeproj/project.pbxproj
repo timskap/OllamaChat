@@ -21,6 +21,7 @@
 		AA00000E /* SoundClassifierService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00001E; };
 		CC000001 /* TTSService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA00001F; };
 		CC000002 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC000003; };
+		CC000006 /* QueueMonitorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC000007; };
 		AA00000A /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = BB000001; };
 		AA00000F /* TTSKit in Frameworks */ = {isa = PBXBuildFile; productRef = BB000004; };
 		CC000004 /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = CC000005; };
@@ -44,6 +45,7 @@
 		AA00001E /* SoundClassifierService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SoundClassifierService.swift; sourceTree = "<group>"; };
 		AA00001F /* TTSService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TTSService.swift; sourceTree = "<group>"; };
 		CC000003 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		CC000007 /* QueueMonitorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueMonitorView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -86,6 +88,7 @@
 				AA00001A /* ChatView.swift */,
 				AA000019 /* InstructionsView.swift */,
 				CC000003 /* SettingsView.swift */,
+				CC000007 /* QueueMonitorView.swift */,
 				AA000014 /* OllamaChat.entitlements */,
 				AA000015 /* Info.plist */,
 			);
@@ -172,6 +175,7 @@
 				AA00000E /* SoundClassifierService.swift in Sources */,
 				CC000001 /* TTSService.swift in Sources */,
 				CC000002 /* SettingsView.swift in Sources */,
+				CC000006 /* QueueMonitorView.swift in Sources */,
 				AA000002 /* ContentView.swift in Sources */,
 				AA000006 /* SidebarView.swift in Sources */,
 				AA000008 /* ChatView.swift in Sources */,

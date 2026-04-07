@@ -8,10 +8,13 @@ struct ContentView: View {
     @StateObject private var tts = TTSService()
     @StateObject private var telegram = TelegramService()
 
+    @StateObject private var queueMonitor = QueueMonitor.shared
+
     @State private var selectedProjectID: UUID?
     @State private var selectedChatID: UUID?
     @State private var showInstructions = false
     @State private var showSettings = false
+    @State private var showQueue = false
 
     var body: some View {
         NavigationSplitView {
@@ -38,14 +41,34 @@ struct ContentView: View {
         }
         .toolbar {
             ToolbarItem(placement: .automatic) {
-                Button(action: { showSettings = true }) {
-                    Image(systemName: "gearshape")
+                HStack(spacing: 8) {
+                    Button(action: { showQueue = true }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "list.bullet.clipboard")
+                            if !queueMonitor.items.isEmpty {
+                                Text("\(queueMonitor.items.count)")
+                                    .font(.caption2.bold().monospacedDigit())
+                                    .foregroundStyle(.white)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 1)
+                                    .background(Capsule().fill(.orange))
+                            }
+                        }
+                    }
+                    .help("Processing Queue")
+
+                    Button(action: { showSettings = true }) {
+                        Image(systemName: "gearshape")
+                    }
+                    .help("Settings")
                 }
-                .help("Settings")
             }
         }
         .sheet(isPresented: $showSettings) {
             SettingsView(audio: audio, tts: tts, ollama: ollama, telegram: telegram, store: store)
+        }
+        .sheet(isPresented: $showQueue) {
+            QueueMonitorView(monitor: queueMonitor)
         }
         .frame(minWidth: 600, minHeight: 400)
         .onAppear {

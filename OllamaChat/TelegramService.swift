@@ -556,6 +556,8 @@ class TelegramService: ObservableObject {
         let ids = chatID(forUser: result.userId, username: result.displayName, chatId: result.userId, threadId: nil, isInline: true)
         store?.appendMessage(projectID: ids.projectID, chatID: ids.chatID, message: Message(role: "user", content: text))
 
+        let queueId = QueueMonitor.shared.add(username: result.displayName, preview: String(text.prefix(50)), source: .telegramInline, status: .generating)
+
         let payload: [[String: Any]] = [["role": "user", "content": text]]
         let response = await streamOllama(payload: payload, think: false) { chunk in
             await self.editInlineMessage(token: token, inlineMessageId: inlineMessageId, text: "💬 \(text)\n\n\(chunk)")
@@ -563,6 +565,8 @@ class TelegramService: ObservableObject {
         let rawContent = response?.content ?? "No response from model."
         let finalText = OllamaService.stripLangTag(rawContent)
         await editInlineMessage(token: token, inlineMessageId: inlineMessageId, text: "💬 \(text)\n\n\(finalText)", removeKeyboard: true)
+
+        QueueMonitor.shared.remove(queueId)
 
         // Log response
         store?.appendMessage(projectID: ids.projectID, chatID: ids.chatID, message: Message(role: "assistant", content: finalText))
@@ -684,6 +688,14 @@ class TelegramService: ObservableObject {
 
         guard let messageId = await sendMessage(token: token, chatId: chatId, threadId: threadId, text: placeholder) else { return }
 
+        // Queue monitor
+        let queueId = QueueMonitor.shared.add(
+            username: username,
+            preview: String(text.prefix(50)),
+            source: .telegram,
+            status: webSearch ? .searching : (think ? .thinking : .generating)
+        )
+
         // Build payload from stored chat messages
         var payload: [[String: Any]] = []
         if let pIdx = store?.projects.firstIndex(where: { $0.id == ids.projectID }),
@@ -697,8 +709,11 @@ class TelegramService: ObservableObject {
 
         // Create cancellable task
         let genTask = Task {
+            defer { Task { @MainActor in QueueMonitor.shared.remove(queueId) } }
+
             let result = await self.streamOllama(payload: payload, think: think, webSearch: webSearch, searchQuery: text) { chunk in
                 await self.editMessage(token: token, chatId: chatId, messageId: messageId, text: chunk)
+                QueueMonitor.shared.updateStatus(queueId, status: .generating)
             }
 
             let rawContent = result?.content ?? "No response from model."

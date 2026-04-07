@@ -52,6 +52,13 @@ class OllamaService: ObservableObject {
         isGenerating = true
         isThinking = thinkingEnabled
 
+        let queueId = QueueMonitor.shared.add(
+            username: "You",
+            preview: String(text.prefix(50)),
+            source: .desktop,
+            status: webSearchEnabled ? .searching : (thinkingEnabled ? .thinking : .generating)
+        )
+
         let task = Task {
             defer {
                 Task { @MainActor in
@@ -59,17 +66,24 @@ class OllamaService: ObservableObject {
                     self.isThinking = false
                     self.isSearching = false
                     store.saveAfterStreaming()
+                    QueueMonitor.shared.remove(queueId)
                 }
             }
 
             // Web search
             var searchContext = ""
             if webSearchEnabled {
-                await MainActor.run { isSearching = true }
+                await MainActor.run {
+                    isSearching = true
+                    QueueMonitor.shared.updateStatus(queueId, status: .searching)
+                }
                 if let results = await WebSearchService.shared.searchAndFormat(query: text) {
                     searchContext = results
                 }
-                await MainActor.run { isSearching = false }
+                await MainActor.run {
+                    isSearching = false
+                    QueueMonitor.shared.updateStatus(queueId, status: thinkingEnabled ? .thinking : .generating)
+                }
             }
 
             guard !Task.isCancelled else { return }

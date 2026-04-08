@@ -78,13 +78,15 @@ final class ObjectTracker {
     // MARK: - Configuration
 
     /// IoU threshold for matching detections to tracks
-    var matchIoUThreshold: Float = 0.3
+    var matchIoUThreshold: Float = 0.15  // lowered: tolerate fast motion + low fps
     /// Minimum hits before a track is "confirmed" (visible to user)
-    var minHitsToConfirm: Int = 2
+    var minHitsToConfirm: Int = 1  // appear immediately (was 2 — caused flicker)
     /// Maximum frames a track can go without detection before being deleted
-    var maxAge: Int = 30
+    var maxAge: Int = 60  // ~15s at 4 fps (was 30 = 7.5s)
+    /// Maximum frames a confirmed track can stay invisible before hidden
+    var maxStaleFrames: Int = 20  // ~5s at 4 fps (was 5 = 1.25s)
     /// Confidence threshold to split high vs low detections (ByteTrack 2-stage)
-    var highConfidence: Float = 0.6
+    var highConfidence: Float = 0.4  // lowered to keep more candidates
     /// Maximum number of confirmed tracks to return
     var maxConfirmed: Int = 100
 
@@ -96,7 +98,7 @@ final class ObjectTracker {
     /// All currently tracked objects (confirmed only), sorted by confidence
     var confirmedTracks: [Track] {
         tracks
-            .filter { $0.hits >= minHitsToConfirm && $0.timeSinceUpdate < 5 }
+            .filter { $0.hits >= minHitsToConfirm && $0.timeSinceUpdate < maxStaleFrames }
             .sorted { $0.confidence > $1.confidence }
             .prefix(maxConfirmed)
             .map { $0 }

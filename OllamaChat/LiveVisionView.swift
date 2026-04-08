@@ -37,33 +37,38 @@ struct LiveVisionView: View {
             Divider()
 
             HStack(spacing: 0) {
-                // Camera preview with overlays
+                // Camera preview with overlays — aligned to actual video aspect ratio
                 ZStack {
                     Color.black
 
                     if vision.isRunning {
-                        CameraPreview(session: vision.captureSession)
-                            .aspectRatio(16.0/9.0, contentMode: .fit)
+                        // Container fitted to video aspect — boxes/mask align perfectly
+                        ZStack(alignment: .topLeading) {
+                            CameraPreview(session: vision.captureSession)
 
-                        // Overlay
-                        GeometryReader { geo in
-                            ZStack(alignment: .topLeading) {
-                                // Mask layer
-                                if vision.showMasks, let cg = vision.maskImage {
+                            // Mask layer
+                            if vision.showMasks, let cg = vision.maskImage {
+                                GeometryReader { geo in
                                     Image(decorative: cg, scale: 1.0)
                                         .resizable()
                                         .interpolation(.medium)
                                         .frame(width: geo.size.width, height: geo.size.height)
                                         .allowsHitTesting(false)
                                 }
-                                // Box layer
-                                if vision.showBoxes {
-                                    ForEach(vision.detections) { obj in
-                                        DetectionOverlay(object: obj, in: geo.size, showBox: true, showMask: false)
+                            }
+
+                            // Box layer
+                            if vision.showBoxes {
+                                GeometryReader { geo in
+                                    ZStack(alignment: .topLeading) {
+                                        ForEach(vision.detections) { obj in
+                                            DetectionOverlay(object: obj, in: geo.size, showBox: true, showMask: false)
+                                        }
                                     }
                                 }
                             }
                         }
+                        .aspectRatio(vision.videoAspectRatio, contentMode: .fit)
                     } else {
                         VStack(spacing: 12) {
                             Image(systemName: "video.slash")

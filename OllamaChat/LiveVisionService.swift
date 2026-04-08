@@ -77,6 +77,10 @@ class LiveVisionService: NSObject, ObservableObject {
     @Published var iouThreshold: Float = 0.45
     /// Minimum interval between inference runs in seconds (throttling)
     @Published var inferenceInterval: Double = 0.15  // ~6.6 fps inference, 30 fps display
+    /// Actual video frame aspect ratio (width / height), updated when frames arrive
+    @Published var videoAspectRatio: CGFloat = 16.0 / 9.0
+    /// Original frame size from camera
+    @Published var videoFrameSize: CGSize = .zero
 
     let captureSession = AVCaptureSession()
     private var currentInput: AVCaptureDeviceInput?
@@ -231,17 +235,32 @@ class LiveVisionService: NSObject, ObservableObject {
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
         let srcSize = ciImage.extent.size
 
-        // Center-crop to square then scale to 640
-        let sq = min(srcSize.width, srcSize.height)
-        let cropX = (srcSize.width - sq) / 2
-        let cropY = (srcSize.height - sq) / 2
-        let cropped = ciImage.cropped(to: CGRect(x: cropX, y: cropY, width: sq, height: sq))
-            .transformed(by: CGAffineTransform(translationX: -cropX, y: -cropY))
-        let scale = 640.0 / sq
-        let scaled = cropped.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        // Update aspect ratio if changed
+        let aspect = srcSize.width / srcSize.height
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if abs(self.videoAspectRatio - aspect) > 0.01 {
+                self.videoAspectRatio = aspect
+                self.videoFrameSize = srcSize
+            }
+        }
+
+        // Letterbox: scale to fit 640x640 preserving aspect, pad with black
+        let scale = min(640.0 / srcSize.width, 640.0 / srcSize.height)
+        let scaledW = srcSize.width * scale
+        let scaledH = srcSize.height * scale
+        let padX = (640.0 - scaledW) / 2
+        let padY = (640.0 - scaledH) / 2
+
+        let scaled = ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        let translated = scaled.transformed(by: CGAffineTransform(translationX: padX, y: padY))
+
+        // Composite over black background to ensure 640x640 output
+        let blackBg = CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 640, height: 640))
+        let composited = translated.composited(over: blackBg)
 
         let context = CIContext()
-        guard let cgImage = context.createCGImage(scaled, from: CGRect(x: 0, y: 0, width: 640, height: 640)),
+        guard let cgImage = context.createCGImage(composited, from: CGRect(x: 0, y: 0, width: 640, height: 640)),
               let inputBuffer = makePixelBuffer(from: cgImage, width: 640, height: 640) else { return }
 
         do {
@@ -250,7 +269,8 @@ class LiveVisionService: NSObject, ObservableObject {
             let result = try model.prediction(from: provider)
 
             let (newDetections, maskCG) = parseResult(
-                result: result, originalSize: srcSize, threshold: threshold, doMasks: doMasks, iouThresh: iouThresh
+                result: result, padX: padX, padY: padY, scaledW: scaledW, scaledH: scaledH,
+                threshold: threshold, doMasks: doMasks, iouThresh: iouThresh
             )
 
             DispatchQueue.main.async { [weak self] in
@@ -292,8 +312,9 @@ class LiveVisionService: NSObject, ObservableObject {
         let coeffs: [Float]?
     }
 
-    /// Parse YOLO output. Returns (detections in image-space top-left coords, optional mask CGImage)
-    private func parseResult(result: MLFeatureProvider, originalSize: CGSize, threshold: Float, doMasks: Bool, iouThresh: Float) -> ([DetectedObject], CGImage?) {
+    /// Parse YOLO output. Returns detections in 0..1 image space (relative to actual video frame, top-left origin)
+    /// padX/padY/scaledW/scaledH describe the letterbox region inside 640x640 model input
+    private func parseResult(result: MLFeatureProvider, padX: CGFloat, padY: CGFloat, scaledW: CGFloat, scaledH: CGFloat, threshold: Float, doMasks: Bool, iouThresh: Float) -> ([DetectedObject], CGImage?) {
         var detTensor: MLMultiArray?
         var protoTensor: MLMultiArray?
 
@@ -350,21 +371,21 @@ class LiveVisionService: NSObject, ObservableObject {
             ))
         }
 
-        // NMS — even though end2end says it's not needed, we still get duplicates
+        // NMS — remove duplicates
         let kept = nonMaxSuppression(raws, iouThreshold: iouThresh, maxKeep: 30)
 
-        // Image space transform: aspect-fit (no center crop) — model gets a letterboxed 640x640
-        // We assume center-crop preprocessing in runInference
-        let sq = min(originalSize.width, originalSize.height)
-        let offsetX = (originalSize.width - sq) / 2
-        let offsetY = (originalSize.height - sq) / 2
-
+        // Convert from 640-space (letterboxed) to 0..1 image space (the actual video frame)
+        // Model input had image scaled into [padX, padY, padX+scaledW, padY+scaledH] region
         var detections: [DetectedObject] = []
         for r in kept {
-            let bx1 = (r.bbox640.minX / 640.0 * sq + offsetX) / originalSize.width
-            let by1 = (r.bbox640.minY / 640.0 * sq + offsetY) / originalSize.height
-            let bx2 = (r.bbox640.maxX / 640.0 * sq + offsetX) / originalSize.width
-            let by2 = (r.bbox640.maxY / 640.0 * sq + offsetY) / originalSize.height
+            // Subtract pad, divide by scaled size to get 0..1 in image space
+            let bx1 = max(0, min(1, (r.bbox640.minX - padX) / scaledW))
+            let by1 = max(0, min(1, (r.bbox640.minY - padY) / scaledH))
+            let bx2 = max(0, min(1, (r.bbox640.maxX - padX) / scaledW))
+            let by2 = max(0, min(1, (r.bbox640.maxY - padY) / scaledH))
+
+            // Skip degenerate boxes after clamping
+            if bx2 - bx1 < 0.01 || by2 - by1 < 0.01 { continue }
 
             let bbox = CGRect(x: bx1, y: by1, width: bx2 - bx1, height: by2 - by1)
             detections.append(DetectedObject(
@@ -375,14 +396,28 @@ class LiveVisionService: NSObject, ObservableObject {
             ))
         }
 
-        // Build mask
+        // Build mask (full 160x160 letterboxed) then crop to inner region
         var maskCG: CGImage?
         if doMasks, let proto = protoTensor, !kept.isEmpty {
             let detsForMask = kept.compactMap { r -> (CGRect, [Float], (UInt8, UInt8, UInt8))? in
                 guard let coeffs = r.coeffs else { return nil }
                 return (r.bbox640, coeffs, classRGB[r.cls])
             }
-            maskCG = buildMask(detections: detsForMask, proto: proto)
+            if let fullMask = buildMask(detections: detsForMask, proto: proto) {
+                // Crop the inner region (where actual video is) so it aligns with displayed frame
+                let pW = CGFloat(proto.shape[3].intValue)  // 160
+                let pH = CGFloat(proto.shape[2].intValue)  // 160
+                let cropX = padX / 640.0 * pW
+                let cropY = padY / 640.0 * pH
+                let cropW = scaledW / 640.0 * pW
+                let cropH = scaledH / 640.0 * pH
+                let cropRect = CGRect(x: cropX, y: cropY, width: cropW, height: cropH)
+                if let cropped = fullMask.cropping(to: cropRect) {
+                    maskCG = cropped
+                } else {
+                    maskCG = fullMask
+                }
+            }
         }
 
         return (detections, maskCG)

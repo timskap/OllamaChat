@@ -19,6 +19,22 @@ struct CameraDevice: Identifiable, Hashable {
     let name: String
 }
 
+enum YOLOModel: String, CaseIterable, Identifiable {
+    case yolo26nSeg = "yolo26n-seg"
+    case yolo26sSeg = "yolo26s-seg"
+    case yolo26mSeg = "yolo26m-seg"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .yolo26nSeg: return "YOLO26-N (fast, ~5MB)"
+        case .yolo26sSeg: return "YOLO26-S (balanced, 20MB)"
+        case .yolo26mSeg: return "YOLO26-M (accurate, 45MB)"
+        }
+    }
+}
+
 // COCO 80 class names
 private let cocoLabels = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
@@ -82,6 +98,12 @@ class LiveVisionService: NSObject, ObservableObject {
     @Published var maxDetections: Int = 100 {
         didSet { tracker.maxConfirmed = maxDetections }
     }
+    @Published var selectedYOLOModel: YOLOModel {
+        didSet {
+            UserDefaults.standard.set(selectedYOLOModel.rawValue, forKey: "liveVisionYOLOModel")
+            reloadModel()
+        }
+    }
     /// Actual video frame aspect ratio (width / height), updated when frames arrive
     @Published var videoAspectRatio: CGFloat = 16.0 / 9.0
     /// Original frame size from camera
@@ -105,17 +127,29 @@ class LiveVisionService: NSObject, ObservableObject {
 
     override init() {
         self.selectedCameraID = UserDefaults.standard.string(forKey: "liveVisionCameraID") ?? ""
+        let savedModel = UserDefaults.standard.string(forKey: "liveVisionYOLOModel") ?? YOLOModel.yolo26sSeg.rawValue
+        self.selectedYOLOModel = YOLOModel(rawValue: savedModel) ?? .yolo26sSeg
         super.init()
         loadModel()
         refreshCameraList()
+    }
+
+    func reloadModel() {
+        coreMLModel = nil
+        tracker.reset()
+        loadModel()
     }
 
     private func loadModel() {
         do {
             let config = MLModelConfiguration()
             config.computeUnits = .all
-            // Try yolo26s-seg first, fall back to yolo26n-seg for compatibility
-            let modelNames = ["yolo26s-seg", "yolo26n-seg"]
+            // Try selected model first, fall back to others
+            let preferred = selectedYOLOModel.rawValue
+            var modelNames = [preferred]
+            for m in YOLOModel.allCases where m.rawValue != preferred {
+                modelNames.append(m.rawValue)
+            }
             for name in modelNames {
                 if let url = Bundle.main.url(forResource: name, withExtension: "mlmodelc")
                     ?? Bundle.main.url(forResource: name, withExtension: "mlpackage") {

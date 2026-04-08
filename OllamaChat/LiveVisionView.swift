@@ -90,6 +90,23 @@ struct LiveVisionView: View {
                 VStack(alignment: .leading, spacing: 0) {
                   ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
+                    // Model picker
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("MODEL")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                        Picker("", selection: $vision.selectedYOLOModel) {
+                            ForEach(YOLOModel.allCases) { model in
+                                Text(model.displayName).tag(model)
+                            }
+                        }
+                        .labelsHidden()
+                        .controlSize(.small)
+                    }
+                    .padding(12)
+
+                    Divider()
+
                     // Camera picker
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 4) {

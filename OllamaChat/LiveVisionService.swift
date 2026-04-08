@@ -98,6 +98,18 @@ class LiveVisionService: NSObject, ObservableObject {
     @Published var maxDetections: Int = 100 {
         didSet { tracker.maxConfirmed = maxDetections }
     }
+    @Published var trackerMatchIoU: Float = 0.15 {
+        didSet { tracker.matchIoUThreshold = trackerMatchIoU }
+    }
+    @Published var trackerMinHits: Int = 1 {
+        didSet { tracker.minHitsToConfirm = trackerMinHits }
+    }
+    @Published var trackerMaxStale: Int = 20 {
+        didSet { tracker.maxStaleFrames = trackerMaxStale }
+    }
+    @Published var trackerMaxAge: Int = 60 {
+        didSet { tracker.maxAge = trackerMaxAge }
+    }
     @Published var selectedYOLOModel: YOLOModel {
         didSet {
             UserDefaults.standard.set(selectedYOLOModel.rawValue, forKey: "liveVisionYOLOModel")
@@ -130,6 +142,12 @@ class LiveVisionService: NSObject, ObservableObject {
         let savedModel = UserDefaults.standard.string(forKey: "liveVisionYOLOModel") ?? YOLOModel.yolo26sSeg.rawValue
         self.selectedYOLOModel = YOLOModel(rawValue: savedModel) ?? .yolo26sSeg
         super.init()
+        // Sync initial values to tracker
+        tracker.matchIoUThreshold = trackerMatchIoU
+        tracker.minHitsToConfirm = trackerMinHits
+        tracker.maxStaleFrames = trackerMaxStale
+        tracker.maxAge = trackerMaxAge
+        tracker.maxConfirmed = maxDetections
         loadModel()
         refreshCameraList()
     }

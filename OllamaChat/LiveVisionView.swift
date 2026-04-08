@@ -208,6 +208,69 @@ struct LiveVisionView: View {
 
                     Divider()
 
+                    // Tracker tuning
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("TRACKER")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+
+                        Text("MATCH IoU")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.tertiary)
+                            .padding(.top, 2)
+                        HStack {
+                            Slider(value: $vision.trackerMatchIoU, in: 0.05...0.7)
+                            Text(String(format: "%.2f", vision.trackerMatchIoU))
+                                .font(.caption2.monospacedDigit())
+                                .frame(width: 30)
+                        }
+
+                        Text("MIN HITS")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.tertiary)
+                            .padding(.top, 4)
+                        HStack {
+                            Slider(value: Binding(
+                                get: { Double(vision.trackerMinHits) },
+                                set: { vision.trackerMinHits = Int($0) }
+                            ), in: 1...5, step: 1)
+                            Text("\(vision.trackerMinHits)")
+                                .font(.caption2.monospacedDigit())
+                                .frame(width: 30)
+                        }
+
+                        Text("STALE FRAMES")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.tertiary)
+                            .padding(.top, 4)
+                        HStack {
+                            Slider(value: Binding(
+                                get: { Double(vision.trackerMaxStale) },
+                                set: { vision.trackerMaxStale = Int($0) }
+                            ), in: 1...60, step: 1)
+                            Text("\(vision.trackerMaxStale)")
+                                .font(.caption2.monospacedDigit())
+                                .frame(width: 30)
+                        }
+
+                        Text("MAX AGE")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.tertiary)
+                            .padding(.top, 4)
+                        HStack {
+                            Slider(value: Binding(
+                                get: { Double(vision.trackerMaxAge) },
+                                set: { vision.trackerMaxAge = Int($0) }
+                            ), in: 5...300, step: 5)
+                            Text("\(vision.trackerMaxAge)")
+                                .font(.caption2.monospacedDigit())
+                                .frame(width: 30)
+                        }
+                    }
+                    .padding(12)
+
+                    Divider()
+
                     Text("DETECTED")
                         .font(.caption.bold())
                         .foregroundStyle(.secondary)

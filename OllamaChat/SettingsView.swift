@@ -5,6 +5,7 @@ struct SettingsView: View {
     @ObservedObject var tts: TTSService
     @ObservedObject var ollama: OllamaService
     @ObservedObject var telegram: TelegramService
+    @ObservedObject var yandex: YandexStationService
     @ObservedObject var store: ProjectStore
     @Environment(\.dismiss) private var dismiss
 
@@ -34,6 +35,7 @@ struct SettingsView: View {
                         Circle().fill(.red).frame(width: 8, height: 8)
                     }
                 }.tag(1)
+                Text("Yandex Station").tag(2)
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 20)
@@ -42,11 +44,13 @@ struct SettingsView: View {
 
             if selectedTab == 0 {
                 modelsTab
-            } else {
+            } else if selectedTab == 1 {
                 telegramTab
+            } else {
+                yandexTab
             }
         }
-        .frame(width: 500, height: 550)
+        .frame(width: 540, height: 600)
         .onAppear {
             // Load bot token from first project with telegram configured
             if let project = store.projects.first(where: { !$0.telegram.botToken.isEmpty && !$0.telegram.botToken.hasPrefix("tg_user_") }) {
@@ -173,6 +177,110 @@ struct SettingsView: View {
                     }
                 }
                 .padding(16).background(Color.secondary.opacity(0.05)).clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .padding(20)
+        }
+    }
+
+    // MARK: - Yandex Station Tab
+
+    private var yandexTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Image(systemName: "hifispeaker.fill")
+                        .font(.title3)
+                        .foregroundStyle(.red)
+                    Text("Yandex Station")
+                        .font(.headline)
+                    Spacer()
+                    if yandex.isConnected {
+                        HStack(spacing: 4) {
+                            Circle().fill(.green).frame(width: 8, height: 8)
+                            Text("Connected").font(.caption).foregroundStyle(.secondary)
+                        }
+                    } else if !yandex.statusText.isEmpty {
+                        Text(yandex.statusText)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                }
+
+                Text("Voice control: say \"\(yandex.triggerWord), <question>\" to your Yandex Station and it will route to Ollama.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Enable Yandex Station", isOn: $yandex.enabled)
+                    .onChange(of: yandex.enabled) { _, on in
+                        if on { yandex.connect() } else { yandex.disconnect() }
+                    }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Trigger Word").font(.subheadline.bold())
+                    TextField("e.g. оллама", text: $yandex.triggerWord)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Device Host (local IP)").font(.subheadline.bold())
+                    TextField("192.168.1.100", text: $yandex.deviceHost)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Device Port").font(.subheadline.bold())
+                    TextField("1961", text: $yandex.devicePort)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Conversation Token").font(.subheadline.bold())
+                    SecureField("Token from quasar.yandex.net/glagol/token", text: $yandex.conversationToken)
+                        .textFieldStyle(.roundedBorder)
+                }
+
+                HStack {
+                    Button("Test Speak") {
+                        yandex.say("Привет! Я готов помочь.")
+                    }
+                    .disabled(!yandex.isConnected)
+
+                    if yandex.isConnected {
+                        Button("Disconnect") { yandex.disconnect() }
+                    } else {
+                        Button("Connect") { yandex.connect() }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(yandex.deviceHost.isEmpty || yandex.conversationToken.isEmpty)
+                    }
+                }
+
+                if !yandex.lastCommand.isEmpty {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label("Last Command", systemImage: "waveform")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                        Text(yandex.lastCommand)
+                            .font(.callout)
+                            .padding(8)
+                            .background(Color.secondary.opacity(0.05))
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                    }
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("How to get token:").font(.caption.bold())
+                    Text("1. Login to https://quasar.yandex.net")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    Text("2. Find your device IP in router settings")
+                        .font(.caption2).foregroundStyle(.secondary)
+                    Text("3. Get token via Yandex API or Home Assistant YandexStation plugin")
+                        .font(.caption2).foregroundStyle(.secondary)
+                }
             }
             .padding(20)
         }

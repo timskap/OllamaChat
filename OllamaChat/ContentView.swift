@@ -7,6 +7,7 @@ struct ContentView: View {
     @StateObject private var soundClassifier = SoundClassifierService()
     @StateObject private var tts = TTSService()
     @StateObject private var telegram = TelegramService()
+    @StateObject private var yandex = YandexStationService()
 
     @StateObject private var queueMonitor = QueueMonitor.shared
 
@@ -65,7 +66,7 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView(audio: audio, tts: tts, ollama: ollama, telegram: telegram, store: store)
+            SettingsView(audio: audio, tts: tts, ollama: ollama, telegram: telegram, yandex: yandex, store: store)
         }
         .sheet(isPresented: $showQueue) {
             QueueMonitorView(monitor: queueMonitor)
@@ -86,6 +87,34 @@ struct ContentView: View {
                 if project.telegram.enabled && !project.telegram.botToken.isEmpty && !project.telegram.botToken.hasPrefix("tg_user_") {
                     telegram.start(projectID: project.id, store: store, audio: audio)
                 }
+            }
+
+            // Wire Yandex Station to Ollama
+            yandex.onCommandReceived = { [self] query in
+                guard let projectID = selectedProjectID, let chatID = selectedChatID else { return }
+                let instructions = store.projects.first { $0.id == projectID }?.instructions ?? ""
+                Task {
+                    await ollama.send(
+                        query,
+                        instructions: instructions,
+                        thinkingEnabled: false,
+                        webSearchEnabled: false,
+                        store: store,
+                        projectID: projectID,
+                        chatID: chatID
+                    )
+                    // Speak the response back through Yandex Station
+                    if let lastMsg = store.projects.first(where: { $0.id == projectID })?
+                        .chats.first(where: { $0.id == chatID })?.messages.last,
+                       lastMsg.role == "assistant", !lastMsg.content.isEmpty {
+                        yandex.say(lastMsg.content)
+                    }
+                }
+            }
+
+            // Auto-connect Yandex if enabled
+            if yandex.enabled && !yandex.deviceHost.isEmpty && !yandex.conversationToken.isEmpty {
+                yandex.connect()
             }
         }
         .badge(telegram.pendingUsers.count)

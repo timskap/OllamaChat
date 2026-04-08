@@ -72,6 +72,42 @@ struct LiveVisionView: View {
 
                 // Right panel
                 VStack(alignment: .leading, spacing: 0) {
+                    // Camera picker
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 4) {
+                            Text("CAMERA")
+                                .font(.caption.bold())
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Button(action: { vision.refreshCameraList() }) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.caption2)
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Refresh cameras")
+                        }
+
+                        if vision.availableCameras.isEmpty {
+                            Text("No cameras detected")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        } else {
+                            Picker("", selection: Binding(
+                                get: { vision.selectedCameraID },
+                                set: { vision.switchCamera(to: $0) }
+                            )) {
+                                ForEach(vision.availableCameras) { cam in
+                                    Text(cam.name).tag(cam.id)
+                                }
+                            }
+                            .labelsHidden()
+                            .controlSize(.small)
+                        }
+                    }
+                    .padding(12)
+
+                    Divider()
+
                     // Toggles
                     VStack(alignment: .leading, spacing: 8) {
                         Toggle("Bounding Boxes", isOn: $vision.showBoxes)

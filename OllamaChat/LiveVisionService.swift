@@ -12,6 +12,11 @@ struct DetectedObject: Identifiable {
     let color: Color
 }
 
+struct CameraDevice: Identifiable, Hashable {
+    let id: String        // uniqueID
+    let name: String
+}
+
 @MainActor
 class LiveVisionService: NSObject, ObservableObject {
     @Published var isRunning = false
@@ -20,8 +25,13 @@ class LiveVisionService: NSObject, ObservableObject {
     @Published var fps: Double = 0
     @Published var showMasks = true
     @Published var showBoxes = true
+    @Published var availableCameras: [CameraDevice] = []
+    @Published var selectedCameraID: String {
+        didSet { UserDefaults.standard.set(selectedCameraID, forKey: "liveVisionCameraID") }
+    }
 
     let captureSession = AVCaptureSession()
+    private var currentInput: AVCaptureDeviceInput?
     private let videoOutput = AVCaptureVideoDataOutput()
     private let videoQueue = DispatchQueue(label: "com.ollama.vision.video")
 
@@ -38,8 +48,35 @@ class LiveVisionService: NSObject, ObservableObject {
     private var classColors: [String: Color] = [:]
 
     override init() {
+        self.selectedCameraID = UserDefaults.standard.string(forKey: "liveVisionCameraID") ?? ""
         super.init()
         loadModel()
+        refreshCameraList()
+    }
+
+    /// Enumerate available video input devices
+    func refreshCameraList() {
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInWideAngleCamera, .external, .deskViewCamera, .continuityCamera],
+            mediaType: .video,
+            position: .unspecified
+        )
+        availableCameras = discovery.devices.map { device in
+            CameraDevice(id: device.uniqueID, name: device.localizedName)
+        }
+        // If no selection or selection is invalid, pick first
+        if selectedCameraID.isEmpty || !availableCameras.contains(where: { $0.id == selectedCameraID }) {
+            selectedCameraID = availableCameras.first?.id ?? ""
+        }
+    }
+
+    /// Switch to a different camera while running (or set for next start)
+    func switchCamera(to id: String) {
+        selectedCameraID = id
+        guard isRunning else { return }
+        Task {
+            await applyCameraInput()
+        }
     }
 
     private func loadModel() {
@@ -77,28 +114,13 @@ class LiveVisionService: NSObject, ObservableObject {
     }
 
     private func setupCamera() async {
+        refreshCameraList()
+
         captureSession.beginConfiguration()
         captureSession.sessionPreset = .hd1280x720
 
-        // Find front-facing or any camera
-        let discovery = AVCaptureDevice.DiscoverySession(
-            deviceTypes: [.builtInWideAngleCamera, .external],
-            mediaType: .video,
-            position: .unspecified
-        )
-        guard let device = discovery.devices.first else {
-            statusText = "No camera found"
-            captureSession.commitConfiguration()
-            return
-        }
-
-        do {
-            let input = try AVCaptureDeviceInput(device: device)
-            if captureSession.canAddInput(input) {
-                captureSession.addInput(input)
-            }
-        } catch {
-            statusText = "Camera input error: \(error.localizedDescription)"
+        // Set up the selected camera
+        if !applyCameraInputLocked() {
             captureSession.commitConfiguration()
             return
         }
@@ -132,6 +154,57 @@ class LiveVisionService: NSObject, ObservableObject {
                 self?.statusText = ""
                 self?.fps = 0
             }
+        }
+    }
+
+    /// Hot-swap camera input (must be called while session is running)
+    private func applyCameraInput() async {
+        captureSession.beginConfiguration()
+        _ = applyCameraInputLocked()
+        captureSession.commitConfiguration()
+    }
+
+    /// Set up the selected camera input. Caller must be inside beginConfiguration block.
+    /// Returns true on success.
+    private func applyCameraInputLocked() -> Bool {
+        // Remove existing input
+        if let existing = currentInput {
+            captureSession.removeInput(existing)
+            currentInput = nil
+        }
+
+        // Find target device
+        let discovery = AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInWideAngleCamera, .external, .deskViewCamera, .continuityCamera],
+            mediaType: .video,
+            position: .unspecified
+        )
+        let device: AVCaptureDevice?
+        if !selectedCameraID.isEmpty {
+            device = discovery.devices.first { $0.uniqueID == selectedCameraID }
+                ?? discovery.devices.first
+        } else {
+            device = discovery.devices.first
+        }
+        guard let device else {
+            statusText = "No camera found"
+            return false
+        }
+
+        do {
+            let input = try AVCaptureDeviceInput(device: device)
+            if captureSession.canAddInput(input) {
+                captureSession.addInput(input)
+                currentInput = input
+                statusText = "Using \(device.localizedName)"
+                return true
+            } else {
+                statusText = "Cannot add camera input"
+                return false
+            }
+        } catch {
+            statusText = "Camera input error: \(error.localizedDescription)"
+            return false
         }
     }
 

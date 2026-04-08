@@ -88,6 +88,8 @@ struct LiveVisionView: View {
 
                 // Right panel
                 VStack(alignment: .leading, spacing: 0) {
+                  ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
                     // Camera picker
                     VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 4) {
@@ -224,8 +226,8 @@ struct LiveVisionView: View {
                             }
                         }
                     }
-
-                    Spacer()
+                    } // inner VStack
+                  } // ScrollView
 
                     Divider()
 

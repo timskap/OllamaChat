@@ -7,6 +7,7 @@ import SwiftUI
 
 struct DetectedObject: Identifiable {
     let id = UUID()
+    let trackId: Int            // persistent ID across frames (0 if untracked)
     let label: String
     let confidence: Float
     let boundingBox: CGRect      // normalized 0..1, top-left origin, image space
@@ -93,6 +94,7 @@ class LiveVisionService: NSObject, ObservableObject {
     private var lastFpsUpdate = Date()
     private var frameCount = 0
     private var lastInferenceTime = Date.distantPast
+    private let tracker = ObjectTracker()
 
     // Atomic flag for frame skipping (only touched on processingQueue)
     private var processingLock = false
@@ -144,6 +146,7 @@ class LiveVisionService: NSObject, ObservableObject {
 
     func switchCamera(to id: String) {
         selectedCameraID = id
+        tracker.reset()
         guard isRunning else { return }
         Task { await applyCameraInput() }
     }
@@ -186,6 +189,7 @@ class LiveVisionService: NSObject, ObservableObject {
     }
 
     func stop() {
+        tracker.reset()
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             self?.captureSession.stopRunning()
             Task { @MainActor in
@@ -387,34 +391,48 @@ class LiveVisionService: NSObject, ObservableObject {
         // NMS — remove duplicates
         let kept = nonMaxSuppression(raws, iouThreshold: iouThresh, maxKeep: 30)
 
-        // Convert from 640-space (letterboxed) to 0..1 image space (the actual video frame)
-        // Model input had image scaled into [padX, padY, padX+scaledW, padY+scaledH] region
-        var detections: [DetectedObject] = []
+        // Convert from model-space (letterboxed) to 0..1 image space and feed to tracker
+        var trackerDets: [ObjectTracker.Detection] = []
         for r in kept {
-            // Subtract pad, divide by scaled size to get 0..1 in image space
             let bx1 = max(0, min(1, (r.bbox640.minX - padX) / scaledW))
             let by1 = max(0, min(1, (r.bbox640.minY - padY) / scaledH))
             let bx2 = max(0, min(1, (r.bbox640.maxX - padX) / scaledW))
             let by2 = max(0, min(1, (r.bbox640.maxY - padY) / scaledH))
 
-            // Skip degenerate boxes after clamping
             if bx2 - bx1 < 0.01 || by2 - by1 < 0.01 { continue }
 
             let bbox = CGRect(x: bx1, y: by1, width: bx2 - bx1, height: by2 - by1)
-            detections.append(DetectedObject(
+            trackerDets.append(ObjectTracker.Detection(
+                cls: r.cls,
                 label: cocoLabels[r.cls],
+                bbox: bbox,
                 confidence: r.conf,
-                boundingBox: bbox,
-                color: swiftUIColor(classRGB[r.cls])
+                maskCoeffs: r.coeffs,
+                bbox640: r.bbox640
             ))
         }
 
-        // Build mask (full 160x160 letterboxed) then crop to inner region
+        // Run tracker for persistent IDs
+        let tracks = tracker.update(detections: trackerDets)
+
+        // Build DetectedObject from confirmed tracks
+        var detections: [DetectedObject] = []
+        for t in tracks {
+            detections.append(DetectedObject(
+                trackId: t.id,
+                label: t.label,
+                confidence: t.confidence,
+                boundingBox: t.bbox,
+                color: swiftUIColor(classRGB[t.cls])
+            ))
+        }
+
+        // Build mask from tracked objects (uses their last known mask coeffs)
         var maskCG: CGImage?
-        if doMasks, let proto = protoTensor, !kept.isEmpty {
-            let detsForMask = kept.compactMap { r -> (CGRect, [Float], (UInt8, UInt8, UInt8))? in
-                guard let coeffs = r.coeffs else { return nil }
-                return (r.bbox640, coeffs, classRGB[r.cls])
+        if doMasks, let proto = protoTensor, !tracks.isEmpty {
+            let detsForMask = tracks.compactMap { t -> (CGRect, [Float], (UInt8, UInt8, UInt8))? in
+                guard let coeffs = t.maskCoeffs, let bbox640 = t.bbox640 else { return nil }
+                return (bbox640, coeffs, classRGB[t.cls])
             }
             if let fullMask = buildMask(detections: detsForMask, proto: proto) {
                 // Crop the inner region (where actual video is) so it aligns with displayed frame

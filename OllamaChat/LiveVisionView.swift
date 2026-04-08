@@ -193,6 +193,9 @@ struct LiveVisionView: View {
                                 ForEach(vision.detections) { obj in
                                     HStack(spacing: 6) {
                                         Circle().fill(obj.color).frame(width: 8, height: 8)
+                                        Text("#\(obj.trackId)")
+                                            .font(.caption2.monospacedDigit())
+                                            .foregroundStyle(.tertiary)
                                         Text(obj.label)
                                             .font(.caption)
                                         Spacer()
@@ -303,7 +306,7 @@ struct DetectionOverlay: View {
                     .frame(width: w, height: h)
                     .position(x: x + w/2, y: y + h/2)
 
-                Text("\(object.label) \(Int(object.confidence * 100))%")
+                Text("#\(object.trackId) \(object.label) \(Int(object.confidence * 100))%")
                     .font(.caption2.bold())
                     .foregroundStyle(.white)
                     .padding(.horizontal, 4)

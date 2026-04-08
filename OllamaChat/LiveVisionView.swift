@@ -48,8 +48,19 @@ struct LiveVisionView: View {
                         // Overlay
                         GeometryReader { geo in
                             ZStack(alignment: .topLeading) {
-                                ForEach(vision.detections) { obj in
-                                    DetectionOverlay(object: obj, in: geo.size, showBox: vision.showBoxes, showMask: vision.showMasks)
+                                // Mask layer
+                                if vision.showMasks, let cg = vision.maskImage {
+                                    Image(decorative: cg, scale: 1.0)
+                                        .resizable()
+                                        .interpolation(.medium)
+                                        .frame(width: geo.size.width, height: geo.size.height)
+                                        .allowsHitTesting(false)
+                                }
+                                // Box layer
+                                if vision.showBoxes {
+                                    ForEach(vision.detections) { obj in
+                                        DetectionOverlay(object: obj, in: geo.size, showBox: true, showMask: false)
+                                    }
                                 }
                             }
                         }
@@ -235,11 +246,10 @@ struct DetectionOverlay: View {
     }
 
     var body: some View {
-        // Vision: origin bottom-left, normalized 0..1
-        // SwiftUI: origin top-left
+        // bbox is in image space, top-left origin, normalized 0..1
         let bb = object.boundingBox
         let x = bb.minX * size.width
-        let y = (1 - bb.maxY) * size.height
+        let y = bb.minY * size.height
         let w = bb.width * size.width
         let h = bb.height * size.height
 

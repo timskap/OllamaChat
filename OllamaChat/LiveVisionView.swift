@@ -149,6 +149,17 @@ struct LiveVisionView: View {
                                 .frame(width: 30)
                         }
 
+                        Text("NMS IoU")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.tertiary)
+                            .padding(.top, 4)
+                        HStack {
+                            Slider(value: $vision.iouThreshold, in: 0.1...0.9)
+                            Text(String(format: "%.2f", vision.iouThreshold))
+                                .font(.caption2.monospacedDigit())
+                                .frame(width: 30)
+                        }
+
                         Text("INFERENCE RATE")
                             .font(.caption2.bold())
                             .foregroundStyle(.tertiary)

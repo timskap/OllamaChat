@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var showInstructions = false
     @State private var showSettings = false
     @State private var showQueue = false
+    @State private var showLiveVision = false
 
     var body: some View {
         NavigationSplitView {
@@ -43,6 +44,11 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 HStack(spacing: 8) {
+                    Button(action: { showLiveVision = true }) {
+                        Image(systemName: "viewfinder.circle")
+                    }
+                    .help("Live Vision (YOLO26)")
+
                     Button(action: { showQueue = true }) {
                         HStack(spacing: 4) {
                             Image(systemName: "list.bullet.clipboard")
@@ -70,6 +76,9 @@ struct ContentView: View {
         }
         .sheet(isPresented: $showQueue) {
             QueueMonitorView(monitor: queueMonitor)
+        }
+        .sheet(isPresented: $showLiveVision) {
+            LiveVisionView()
         }
         .frame(minWidth: 600, minHeight: 400)
         .onAppear {

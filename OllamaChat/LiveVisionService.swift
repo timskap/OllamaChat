@@ -73,7 +73,10 @@ class LiveVisionService: NSObject, ObservableObject {
     @Published var selectedCameraID: String {
         didSet { UserDefaults.standard.set(selectedCameraID, forKey: "liveVisionCameraID") }
     }
-    @Published var confidenceThreshold: Float = 0.4
+    @Published var confidenceThreshold: Float = 0.5
+    @Published var iouThreshold: Float = 0.45
+    /// Minimum interval between inference runs in seconds (throttling)
+    @Published var inferenceInterval: Double = 0.15  // ~6.6 fps inference, 30 fps display
 
     let captureSession = AVCaptureSession()
     private var currentInput: AVCaptureDeviceInput?
@@ -84,6 +87,7 @@ class LiveVisionService: NSObject, ObservableObject {
     private var coreMLModel: MLModel?
     private var lastFpsUpdate = Date()
     private var frameCount = 0
+    private var lastInferenceTime = Date.distantPast
 
     // Atomic flag for frame skipping (only touched on processingQueue)
     private var processingLock = false
@@ -221,7 +225,7 @@ class LiveVisionService: NSObject, ObservableObject {
 
     // MARK: - Inference (called from processingQueue)
 
-    private func runInference(pixelBuffer: CVPixelBuffer, threshold: Float, doMasks: Bool) {
+    private func runInference(pixelBuffer: CVPixelBuffer, threshold: Float, doMasks: Bool, iouThresh: Float) {
         guard let model = coreMLModel else { return }
 
         let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
@@ -246,7 +250,7 @@ class LiveVisionService: NSObject, ObservableObject {
             let result = try model.prediction(from: provider)
 
             let (newDetections, maskCG) = parseResult(
-                result: result, originalSize: srcSize, threshold: threshold, doMasks: doMasks
+                result: result, originalSize: srcSize, threshold: threshold, doMasks: doMasks, iouThresh: iouThresh
             )
 
             DispatchQueue.main.async { [weak self] in
@@ -280,8 +284,16 @@ class LiveVisionService: NSObject, ObservableObject {
         return buffer
     }
 
+    /// Raw detection record in 640-space (xyxy pixels), used for NMS
+    private struct RawDet {
+        let cls: Int
+        let conf: Float
+        let bbox640: CGRect
+        let coeffs: [Float]?
+    }
+
     /// Parse YOLO output. Returns (detections in image-space top-left coords, optional mask CGImage)
-    private func parseResult(result: MLFeatureProvider, originalSize: CGSize, threshold: Float, doMasks: Bool) -> ([DetectedObject], CGImage?) {
+    private func parseResult(result: MLFeatureProvider, originalSize: CGSize, threshold: Float, doMasks: Bool, iouThresh: Float) -> ([DetectedObject], CGImage?) {
         var detTensor: MLMultiArray?
         var protoTensor: MLMultiArray?
 
@@ -296,79 +308,115 @@ class LiveVisionService: NSObject, ObservableObject {
 
         guard let det = detTensor else { return ([], nil) }
 
+        // Use MLMultiArray subscript via raw pointer with stride awareness
         let numDetections = det.shape[1].intValue
         let numFeatures = det.shape[2].intValue
-        let pointer = det.dataPointer.bindMemory(to: Float.self, capacity: det.count)
+        guard let ptr = try? UnsafeBufferPointer<Float>(start: det.dataPointer.bindMemory(to: Float.self, capacity: det.count), count: det.count) else {
+            return ([], nil)
+        }
 
-        // Image space transform: model output is in 640x640 model input coords
-        // which maps to the center square of original frame
+        // First pass: collect raw candidates above threshold
+        var raws: [RawDet] = []
+        raws.reserveCapacity(64)
+        for i in 0..<numDetections {
+            let base = i * numFeatures
+            let conf = ptr[base + 4]
+            // Skip empty/below threshold rows
+            if conf < threshold { continue }
+            let cls = Int(ptr[base + 5])
+            if cls < 0 || cls >= cocoLabels.count { continue }
+
+            let x1 = CGFloat(ptr[base + 0])
+            let y1 = CGFloat(ptr[base + 1])
+            let x2 = CGFloat(ptr[base + 2])
+            let y2 = CGFloat(ptr[base + 3])
+
+            // Sanity check: clamp to 0..640
+            let cx1 = max(0, min(640, x1))
+            let cy1 = max(0, min(640, y1))
+            let cx2 = max(0, min(640, x2))
+            let cy2 = max(0, min(640, y2))
+            if cx2 - cx1 < 2 || cy2 - cy1 < 2 { continue }
+
+            var coeffs: [Float]? = nil
+            if doMasks {
+                coeffs = Array(ptr[(base + 6)..<(base + 6 + 32)])
+            }
+
+            raws.append(RawDet(
+                cls: cls, conf: conf,
+                bbox640: CGRect(x: cx1, y: cy1, width: cx2 - cx1, height: cy2 - cy1),
+                coeffs: coeffs
+            ))
+        }
+
+        // NMS — even though end2end says it's not needed, we still get duplicates
+        let kept = nonMaxSuppression(raws, iouThreshold: iouThresh, maxKeep: 30)
+
+        // Image space transform: aspect-fit (no center crop) — model gets a letterboxed 640x640
+        // We assume center-crop preprocessing in runInference
         let sq = min(originalSize.width, originalSize.height)
         let offsetX = (originalSize.width - sq) / 2
         let offsetY = (originalSize.height - sq) / 2
 
         var detections: [DetectedObject] = []
-        var validForMask: [(Int, [Float], (UInt8, UInt8, UInt8))] = []  // (cls, coeffs, rgb) in 640-space
-
-        for i in 0..<numDetections {
-            let base = i * numFeatures
-            let x1 = pointer[base + 0]
-            let y1 = pointer[base + 1]
-            let x2 = pointer[base + 2]
-            let y2 = pointer[base + 3]
-            let conf = pointer[base + 4]
-            let cls = Int(pointer[base + 5])
-
-            if conf < threshold { continue }
-            if cls < 0 || cls >= cocoLabels.count { continue }
-
-            let label = cocoLabels[cls]
-            let rgb = classRGB[cls]
-            let color = swiftUIColor(rgb)
-
-            // Convert from 640x640 model space to original image space (top-left, 0..1)
-            let bx1 = (CGFloat(x1) / 640.0 * sq + offsetX) / originalSize.width
-            let by1 = (CGFloat(y1) / 640.0 * sq + offsetY) / originalSize.height
-            let bx2 = (CGFloat(x2) / 640.0 * sq + offsetX) / originalSize.width
-            let by2 = (CGFloat(y2) / 640.0 * sq + offsetY) / originalSize.height
+        for r in kept {
+            let bx1 = (r.bbox640.minX / 640.0 * sq + offsetX) / originalSize.width
+            let by1 = (r.bbox640.minY / 640.0 * sq + offsetY) / originalSize.height
+            let bx2 = (r.bbox640.maxX / 640.0 * sq + offsetX) / originalSize.width
+            let by2 = (r.bbox640.maxY / 640.0 * sq + offsetY) / originalSize.height
 
             let bbox = CGRect(x: bx1, y: by1, width: bx2 - bx1, height: by2 - by1)
-            detections.append(DetectedObject(label: label, confidence: conf, boundingBox: bbox, color: color))
-
-            // For mask: keep coefficients in 640-space coordinates
-            if doMasks && numFeatures >= 38 {
-                let coeffs = Array(UnsafeBufferPointer(start: pointer.advanced(by: base + 6), count: 32))
-                validForMask.append((cls, coeffs, rgb))
-            }
-
-            // Limit detections to avoid overlap chaos
-            if detections.count >= 30 { break }
+            detections.append(DetectedObject(
+                label: cocoLabels[r.cls],
+                confidence: r.conf,
+                boundingBox: bbox,
+                color: swiftUIColor(classRGB[r.cls])
+            ))
         }
 
         // Build mask
         var maskCG: CGImage?
-        if doMasks, let proto = protoTensor, !validForMask.isEmpty {
-            // Re-iterate detections to get bbox in 640 model space for mask cropping
-            var detsForMask: [(CGRect, [Float], (UInt8, UInt8, UInt8))] = []
-            var idx = 0
-            for i in 0..<numDetections {
-                let base = i * numFeatures
-                let conf = pointer[base + 4]
-                let cls = Int(pointer[base + 5])
-                if conf < threshold || cls < 0 || cls >= cocoLabels.count { continue }
-                if idx >= validForMask.count { break }
-                let x1 = CGFloat(pointer[base + 0])
-                let y1 = CGFloat(pointer[base + 1])
-                let x2 = CGFloat(pointer[base + 2])
-                let y2 = CGFloat(pointer[base + 3])
-                let bbox640 = CGRect(x: x1, y: y1, width: x2 - x1, height: y2 - y1)
-                detsForMask.append((bbox640, validForMask[idx].1, validForMask[idx].2))
-                idx += 1
-                if idx >= 30 { break }
+        if doMasks, let proto = protoTensor, !kept.isEmpty {
+            let detsForMask = kept.compactMap { r -> (CGRect, [Float], (UInt8, UInt8, UInt8))? in
+                guard let coeffs = r.coeffs else { return nil }
+                return (r.bbox640, coeffs, classRGB[r.cls])
             }
             maskCG = buildMask(detections: detsForMask, proto: proto)
         }
 
         return (detections, maskCG)
+    }
+
+    /// Class-aware NMS
+    private func nonMaxSuppression(_ raws: [RawDet], iouThreshold: Float, maxKeep: Int) -> [RawDet] {
+        // Sort by confidence descending
+        let sorted = raws.sorted { $0.conf > $1.conf }
+        var kept: [RawDet] = []
+        var suppressed = Set<Int>()
+
+        for (i, det) in sorted.enumerated() {
+            if suppressed.contains(i) { continue }
+            kept.append(det)
+            if kept.count >= maxKeep { break }
+            for j in (i + 1)..<sorted.count {
+                if suppressed.contains(j) { continue }
+                let other = sorted[j]
+                if other.cls != det.cls { continue }  // class-aware NMS
+                if iou(det.bbox640, other.bbox640) > iouThreshold {
+                    suppressed.insert(j)
+                }
+            }
+        }
+        return kept
+    }
+
+    private func iou(_ a: CGRect, _ b: CGRect) -> Float {
+        let inter = a.intersection(b)
+        if inter.isNull || inter.isEmpty { return 0 }
+        let interArea = Float(inter.width * inter.height)
+        let unionArea = Float(a.width * a.height + b.width * b.height) - interArea
+        return unionArea > 0 ? interArea / unionArea : 0
     }
 
     /// Build mask from detections with bbox in 640x640 model space
@@ -448,24 +496,33 @@ extension LiveVisionService: AVCaptureVideoDataOutputSampleBufferDelegate {
     nonisolated func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
 
-        // Drop frame if still processing previous one
+        // Drop frame if still processing previous one OR not enough time elapsed
         processingQueue.async { [weak self] in
             guard let self else { return }
             if self.processingLock { return }
-            self.processingLock = true
 
-            // Snapshot UI settings on main, then run inference on this background queue
+            // Snapshot UI settings on main thread synchronously
             let semaphore = DispatchSemaphore(value: 0)
-            var threshold: Float = 0.4
+            var threshold: Float = 0.5
+            var iouThresh: Float = 0.45
             var doMasks: Bool = true
+            var minInterval: Double = 0.15
             DispatchQueue.main.async {
                 threshold = self.confidenceThreshold
+                iouThresh = self.iouThreshold
                 doMasks = self.showMasks
+                minInterval = self.inferenceInterval
                 semaphore.signal()
             }
             semaphore.wait()
 
-            self.runInference(pixelBuffer: pixelBuffer, threshold: threshold, doMasks: doMasks)
+            // Throttle: skip if last inference was too recent
+            let now = Date()
+            if now.timeIntervalSince(self.lastInferenceTime) < minInterval { return }
+
+            self.processingLock = true
+            self.lastInferenceTime = now
+            self.runInference(pixelBuffer: pixelBuffer, threshold: threshold, doMasks: doMasks, iouThresh: iouThresh)
             self.processingLock = false
         }
     }

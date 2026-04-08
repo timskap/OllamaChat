@@ -132,6 +132,33 @@ struct LiveVisionView: View {
 
                     Divider()
 
+                    // Tuning
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("CONFIDENCE")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.tertiary)
+                        HStack {
+                            Slider(value: $vision.confidenceThreshold, in: 0.1...0.95)
+                            Text("\(Int(vision.confidenceThreshold * 100))%")
+                                .font(.caption2.monospacedDigit())
+                                .frame(width: 30)
+                        }
+
+                        Text("INFERENCE RATE")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.tertiary)
+                            .padding(.top, 4)
+                        HStack {
+                            Slider(value: $vision.inferenceInterval, in: 0.05...1.0)
+                            Text(String(format: "%.0f Hz", 1.0 / vision.inferenceInterval))
+                                .font(.caption2.monospacedDigit())
+                                .frame(width: 36)
+                        }
+                    }
+                    .padding(12)
+
+                    Divider()
+
                     Text("DETECTED")
                         .font(.caption.bold())
                         .foregroundStyle(.secondary)

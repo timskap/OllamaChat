@@ -85,15 +85,21 @@ final class ObjectTracker {
     var maxAge: Int = 30
     /// Confidence threshold to split high vs low detections (ByteTrack 2-stage)
     var highConfidence: Float = 0.6
+    /// Maximum number of confirmed tracks to return
+    var maxConfirmed: Int = 100
 
     // MARK: - State
 
     private var tracks: [Track] = []
     private var nextId: Int = 1
 
-    /// All currently tracked objects (confirmed only)
+    /// All currently tracked objects (confirmed only), sorted by confidence
     var confirmedTracks: [Track] {
-        tracks.filter { $0.hits >= minHitsToConfirm && $0.timeSinceUpdate < 5 }
+        tracks
+            .filter { $0.hits >= minHitsToConfirm && $0.timeSinceUpdate < 5 }
+            .sorted { $0.confidence > $1.confidence }
+            .prefix(maxConfirmed)
+            .map { $0 }
     }
 
     /// Process a new frame's detections, return matched tracks

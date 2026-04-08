@@ -78,6 +78,10 @@ class LiveVisionService: NSObject, ObservableObject {
     @Published var iouThreshold: Float = 0.45
     /// Minimum interval between inference runs in seconds (throttling)
     @Published var inferenceInterval: Double = 0.25  // ~4 fps inference (1280 model is heavier)
+    /// Maximum number of detections to keep per frame
+    @Published var maxDetections: Int = 100 {
+        didSet { tracker.maxConfirmed = maxDetections }
+    }
     /// Actual video frame aspect ratio (width / height), updated when frames arrive
     @Published var videoAspectRatio: CGFloat = 16.0 / 9.0
     /// Original frame size from camera
@@ -389,7 +393,7 @@ class LiveVisionService: NSObject, ObservableObject {
         }
 
         // NMS — remove duplicates
-        let kept = nonMaxSuppression(raws, iouThreshold: iouThresh, maxKeep: 30)
+        let kept = nonMaxSuppression(raws, iouThreshold: iouThresh, maxKeep: maxDetections)
 
         // Convert from model-space (letterboxed) to 0..1 image space and feed to tracker
         var trackerDets: [ObjectTracker.Detection] = []

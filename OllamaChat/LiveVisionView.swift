@@ -170,6 +170,20 @@ struct LiveVisionView: View {
                                 .font(.caption2.monospacedDigit())
                                 .frame(width: 36)
                         }
+
+                        Text("MAX OBJECTS")
+                            .font(.caption2.bold())
+                            .foregroundStyle(.tertiary)
+                            .padding(.top, 4)
+                        HStack {
+                            Slider(value: Binding(
+                                get: { Double(vision.maxDetections) },
+                                set: { vision.maxDetections = Int($0) }
+                            ), in: 5...300, step: 5)
+                            Text("\(vision.maxDetections)")
+                                .font(.caption2.monospacedDigit())
+                                .frame(width: 30)
+                        }
                     }
                     .padding(12)
 

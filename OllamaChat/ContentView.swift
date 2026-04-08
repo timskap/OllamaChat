@@ -112,8 +112,8 @@ struct ContentView: View {
                 }
             }
 
-            // Auto-connect Yandex if enabled
-            if yandex.enabled && !yandex.deviceHost.isEmpty && !yandex.conversationToken.isEmpty {
+            // Auto-connect Yandex if enabled and configured
+            if yandex.enabled && !yandex.devices.isEmpty {
                 yandex.connect()
             }
         }

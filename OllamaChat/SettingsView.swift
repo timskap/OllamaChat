@@ -184,6 +184,8 @@ struct SettingsView: View {
 
     // MARK: - Yandex Station Tab
 
+    @State private var sessionIdInput = ""
+
     private var yandexTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -215,44 +217,123 @@ struct SettingsView: View {
                         if on { yandex.connect() } else { yandex.disconnect() }
                     }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Trigger Word").font(.subheadline.bold())
-                    TextField("e.g. оллама", text: $yandex.triggerWord)
-                        .textFieldStyle(.roundedBorder)
-                }
-
                 Divider()
 
+                // Step 1: Login
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Device Host (local IP)").font(.subheadline.bold())
-                    TextField("192.168.1.100", text: $yandex.deviceHost)
-                        .textFieldStyle(.roundedBorder)
-                }
+                    Text("Step 1: Yandex Login").font(.subheadline.bold())
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Device Port").font(.subheadline.bold())
-                    TextField("1961", text: $yandex.devicePort)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Conversation Token").font(.subheadline.bold())
-                    SecureField("Token from quasar.yandex.net/glagol/token", text: $yandex.conversationToken)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                HStack {
-                    Button("Test Speak") {
-                        yandex.say("Привет! Я готов помочь.")
-                    }
-                    .disabled(!yandex.isConnected)
-
-                    if yandex.isConnected {
-                        Button("Disconnect") { yandex.disconnect() }
+                    if yandex.xToken.isEmpty {
+                        Text("Get Session_id cookie from passport.yandex.ru → DevTools → Application → Cookies")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        SecureField("Paste Session_id cookie value", text: $sessionIdInput)
+                            .textFieldStyle(.roundedBorder)
+                        Button("Login with Session_id") {
+                            Task {
+                                if await yandex.loginWithSessionId(sessionIdInput) {
+                                    sessionIdInput = ""
+                                }
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(sessionIdInput.isEmpty)
                     } else {
-                        Button("Connect") { yandex.connect() }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(yandex.deviceHost.isEmpty || yandex.conversationToken.isEmpty)
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                            Text("Logged in (x_token saved)").font(.caption)
+                            Spacer()
+                            Button("Logout") {
+                                yandex.xToken = ""
+                                yandex.devices = []
+                                UserDefaults.standard.removeObject(forKey: "yandexDevices")
+                            }
+                            .controlSize(.small)
+                        }
+                    }
+                }
+
+                // Step 2: Discover devices
+                if !yandex.xToken.isEmpty {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Step 2: Devices").font(.subheadline.bold())
+                            Spacer()
+                            Button(action: { Task { await yandex.discoverDevices() } }) {
+                                HStack(spacing: 4) {
+                                    if yandex.isFetchingDevices || yandex.isDiscovering {
+                                        ProgressView().controlSize(.mini)
+                                    }
+                                    Text(yandex.devices.isEmpty ? "Discover Devices" : "Refresh")
+                                        .font(.caption)
+                                }
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.small)
+                        }
+
+                        if yandex.devices.isEmpty {
+                            Text("No devices yet. Click \"Discover Devices\".")
+                                .font(.caption).foregroundStyle(.tertiary)
+                        } else {
+                            ForEach(yandex.devices) { device in
+                                HStack {
+                                    Image(systemName: yandex.selectedDeviceID == device.id ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(yandex.selectedDeviceID == device.id ? .blue : .secondary)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(device.name).font(.callout.bold())
+                                        HStack(spacing: 6) {
+                                            Text(device.platform).font(.caption2).foregroundStyle(.secondary)
+                                            if let host = device.host {
+                                                Text("· \(host)").font(.caption2).foregroundStyle(.secondary)
+                                            } else {
+                                                Text("· no IP").font(.caption2).foregroundStyle(.orange)
+                                            }
+                                            if device.conversationToken != nil {
+                                                Image(systemName: "key.fill")
+                                                    .font(.caption2).foregroundStyle(.green)
+                                            }
+                                        }
+                                    }
+                                    Spacer()
+                                }
+                                .padding(8)
+                                .background(Color.secondary.opacity(0.05))
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    yandex.selectedDeviceID = device.id
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Step 3: Trigger word + connect
+                if !yandex.devices.isEmpty {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Step 3: Connect").font(.subheadline.bold())
+
+                        HStack {
+                            Text("Trigger:").font(.caption)
+                            TextField("оллама", text: $yandex.triggerWord)
+                                .textFieldStyle(.roundedBorder)
+                        }
+
+                        HStack {
+                            Button("Test Speak") { yandex.say("Привет! Я готов помочь.") }
+                                .disabled(!yandex.isConnected)
+
+                            if yandex.isConnected {
+                                Button("Disconnect") { yandex.disconnect() }
+                            } else {
+                                Button("Connect") { yandex.connect() }
+                                    .buttonStyle(.borderedProminent)
+                                    .disabled(yandex.selectedDeviceID.isEmpty)
+                            }
+                        }
                     }
                 }
 
@@ -268,18 +349,6 @@ struct SettingsView: View {
                             .background(Color.secondary.opacity(0.05))
                             .clipShape(RoundedRectangle(cornerRadius: 6))
                     }
-                }
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("How to get token:").font(.caption.bold())
-                    Text("1. Login to https://quasar.yandex.net")
-                        .font(.caption2).foregroundStyle(.secondary)
-                    Text("2. Find your device IP in router settings")
-                        .font(.caption2).foregroundStyle(.secondary)
-                    Text("3. Get token via Yandex API or Home Assistant YandexStation plugin")
-                        .font(.caption2).foregroundStyle(.secondary)
                 }
             }
             .padding(20)

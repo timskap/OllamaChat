@@ -298,16 +298,36 @@ class YandexStationService: NSObject, ObservableObject {
         send(json: msg)
     }
 
+    /// Native TTS via local mode — uses the "repeat_after_me" form
+    /// (no "повторяю", supports SSML effects, no length limit)
     func say(_ text: String) {
         guard let device = devices.first(where: { $0.id == selectedDeviceID }) ?? devices.first,
               let token = device.conversationToken else { return }
+
+        // Convert Cyrillic to UPPERCASE (yandex parser quirk to avoid TTS chunking)
+        let fixedText = text.uppercaseRussian()
+
+        let payload: [String: Any] = [
+            "command": "serverAction",
+            "serverActionEventPayload": [
+                "type": "server_action",
+                "name": "update_form",
+                "payload": [
+                    "form_update": [
+                        "name": "personal_assistant.scenarios.repeat_after_me",
+                        "slots": [
+                            ["type": "string", "name": "request", "value": fixedText]
+                        ]
+                    ],
+                    "resubmit": true
+                ]
+            ]
+        ]
+
         let msg: [String: Any] = [
             "conversationToken": token,
             "id": UUID().uuidString,
-            "payload": [
-                "command": "sendText",
-                "text": "Повтори за мной '\(text.replacingOccurrences(of: "'", with: " "))'"
-            ],
+            "payload": payload,
             "sentTime": Int(Date().timeIntervalSince1970 * 1000)
         ]
         send(json: msg)
@@ -381,6 +401,22 @@ class YandexStationService: NSObject, ObservableObject {
         guard !query.isEmpty else { return }
         print("[Yandex] Triggered: \(query)")
         onCommandReceived?(query)
+    }
+}
+
+private extension String {
+    /// Yandex parser quirk: uppercase Cyrillic prevents TTS from chunking long text
+    func uppercaseRussian() -> String {
+        var result = ""
+        for char in self {
+            let s = String(char)
+            if s.range(of: "[а-яё]", options: .regularExpression) != nil {
+                result += s.uppercased()
+            } else {
+                result += s
+            }
+        }
+        return result
     }
 }
 

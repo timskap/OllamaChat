@@ -357,11 +357,12 @@ class LiveVisionService: NSObject, ObservableObject {
             let yStart = Int(bb.minY * CGFloat(pH))
             let yEnd = Int(bb.maxY * CGFloat(pH))
 
-            // Extract color
-            let nsColor = NSColor(det.color.opacity(1.0))
-            let r = UInt8((nsColor.redComponent * 255).clamped(to: 0...255))
-            let g = UInt8((nsColor.greenComponent * 255).clamped(to: 0...255))
-            let b = UInt8((nsColor.blueComponent * 255).clamped(to: 0...255))
+            // Extract RGB — convert from any colorspace (catalog/dynamic) to sRGB first
+            let rawColor = NSColor(det.color)
+            let nsColor = rawColor.usingColorSpace(.sRGB) ?? rawColor.usingColorSpace(.deviceRGB) ?? rawColor.usingColorSpace(.genericRGB)
+            let r: UInt8 = nsColor.flatMap { UInt8(($0.redComponent * 255).clamped(to: 0...255)) } ?? 255
+            let g: UInt8 = nsColor.flatMap { UInt8(($0.greenComponent * 255).clamped(to: 0...255)) } ?? 0
+            let b: UInt8 = nsColor.flatMap { UInt8(($0.blueComponent * 255).clamped(to: 0...255)) } ?? 0
 
             for y in max(0, yStart)..<min(pH, yEnd) {
                 for x in max(0, xStart)..<min(pW, xEnd) {

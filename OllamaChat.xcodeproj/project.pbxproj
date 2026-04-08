@@ -25,7 +25,7 @@
 		CC000008 /* YandexStationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC000009; };
 		DD000001 /* LiveVisionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD000003; };
 		DD000002 /* LiveVisionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD000004; };
-		DD000005 /* yolo26n-seg.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = DD000006; };
+		DD000005 /* yolo26s-seg.mlpackage in Resources */ = {isa = PBXBuildFile; fileRef = DD000006; };
 		AA00000A /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = BB000001; };
 		AA00000F /* TTSKit in Frameworks */ = {isa = PBXBuildFile; productRef = BB000004; };
 		CC000004 /* SpeakerKit in Frameworks */ = {isa = PBXBuildFile; productRef = CC000005; };
@@ -53,7 +53,7 @@
 		CC000009 /* YandexStationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = YandexStationService.swift; sourceTree = "<group>"; };
 		DD000003 /* LiveVisionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveVisionService.swift; sourceTree = "<group>"; };
 		DD000004 /* LiveVisionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveVisionView.swift; sourceTree = "<group>"; };
-		DD000006 /* yolo26n-seg.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = "yolo26n-seg.mlpackage"; sourceTree = "<group>"; };
+		DD000006 /* yolo26s-seg.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = "yolo26s-seg.mlpackage"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -75,7 +75,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				DD000005 /* yolo26n-seg.mlpackage in Resources */,
+				DD000005 /* yolo26s-seg.mlpackage in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -111,7 +111,7 @@
 				CC000009 /* YandexStationService.swift */,
 				DD000003 /* LiveVisionService.swift */,
 				DD000004 /* LiveVisionView.swift */,
-				DD000006 /* yolo26n-seg.mlpackage */,
+				DD000006 /* yolo26s-seg.mlpackage */,
 				AA000014 /* OllamaChat.entitlements */,
 				AA000015 /* Info.plist */,
 			);

@@ -76,7 +76,7 @@ class LiveVisionService: NSObject, ObservableObject {
     @Published var confidenceThreshold: Float = 0.5
     @Published var iouThreshold: Float = 0.45
     /// Minimum interval between inference runs in seconds (throttling)
-    @Published var inferenceInterval: Double = 0.15  // ~6.6 fps inference, 30 fps display
+    @Published var inferenceInterval: Double = 0.25  // ~4 fps inference (1280 model is heavier)
     /// Actual video frame aspect ratio (width / height), updated when frames arrive
     @Published var videoAspectRatio: CGFloat = 16.0 / 9.0
     /// Original frame size from camera
@@ -89,6 +89,7 @@ class LiveVisionService: NSObject, ObservableObject {
     private let processingQueue = DispatchQueue(label: "com.ollama.vision.inference", qos: .userInitiated)
 
     private var coreMLModel: MLModel?
+    private var modelInputSize: CGFloat = 640  // dynamically detected
     private var lastFpsUpdate = Date()
     private var frameCount = 0
     private var lastInferenceTime = Date.distantPast
@@ -107,13 +108,22 @@ class LiveVisionService: NSObject, ObservableObject {
         do {
             let config = MLModelConfiguration()
             config.computeUnits = .all
-            if let url = Bundle.main.url(forResource: "yolo26n-seg", withExtension: "mlmodelc")
-                ?? Bundle.main.url(forResource: "yolo26n-seg", withExtension: "mlpackage") {
-                self.coreMLModel = try MLModel(contentsOf: url, configuration: config)
-                statusText = "YOLO26-seg loaded"
-            } else {
-                statusText = "Model not found in bundle"
+            // Try yolo26s-seg first, fall back to yolo26n-seg for compatibility
+            let modelNames = ["yolo26s-seg", "yolo26n-seg"]
+            for name in modelNames {
+                if let url = Bundle.main.url(forResource: name, withExtension: "mlmodelc")
+                    ?? Bundle.main.url(forResource: name, withExtension: "mlpackage") {
+                    self.coreMLModel = try MLModel(contentsOf: url, configuration: config)
+                    // Detect model input size
+                    if let imageDesc = coreMLModel!.modelDescription.inputDescriptionsByName.values.first?.imageConstraint {
+                        self.modelInputSize = CGFloat(imageDesc.pixelsWide)
+                    }
+                    statusText = "\(name) loaded (\(Int(modelInputSize))px)"
+                    print("[LiveVision] Loaded \(name), input \(Int(modelInputSize))x\(Int(modelInputSize))")
+                    return
+                }
             }
+            statusText = "Model not found in bundle"
         } catch {
             statusText = "Model load error: \(error.localizedDescription)"
         }
@@ -245,23 +255,25 @@ class LiveVisionService: NSObject, ObservableObject {
             }
         }
 
-        // Letterbox: scale to fit 640x640 preserving aspect, pad with black
-        let scale = min(640.0 / srcSize.width, 640.0 / srcSize.height)
+        // Letterbox: scale to fit modelInputSize preserving aspect, pad with black
+        let mSize = modelInputSize
+        let scale = min(mSize / srcSize.width, mSize / srcSize.height)
         let scaledW = srcSize.width * scale
         let scaledH = srcSize.height * scale
-        let padX = (640.0 - scaledW) / 2
-        let padY = (640.0 - scaledH) / 2
+        let padX = (mSize - scaledW) / 2
+        let padY = (mSize - scaledH) / 2
 
         let scaled = ciImage.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         let translated = scaled.transformed(by: CGAffineTransform(translationX: padX, y: padY))
 
-        // Composite over black background to ensure 640x640 output
-        let blackBg = CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 640, height: 640))
+        // Composite over black background to ensure model input size
+        let blackBg = CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: mSize, height: mSize))
         let composited = translated.composited(over: blackBg)
 
         let context = CIContext()
-        guard let cgImage = context.createCGImage(composited, from: CGRect(x: 0, y: 0, width: 640, height: 640)),
-              let inputBuffer = makePixelBuffer(from: cgImage, width: 640, height: 640) else { return }
+        let mInt = Int(mSize)
+        guard let cgImage = context.createCGImage(composited, from: CGRect(x: 0, y: 0, width: mSize, height: mSize)),
+              let inputBuffer = makePixelBuffer(from: cgImage, width: mInt, height: mInt) else { return }
 
         do {
             let inputName = model.modelDescription.inputDescriptionsByName.keys.first ?? "image"
@@ -313,8 +325,9 @@ class LiveVisionService: NSObject, ObservableObject {
     }
 
     /// Parse YOLO output. Returns detections in 0..1 image space (relative to actual video frame, top-left origin)
-    /// padX/padY/scaledW/scaledH describe the letterbox region inside 640x640 model input
+    /// padX/padY/scaledW/scaledH describe the letterbox region inside model input space
     private func parseResult(result: MLFeatureProvider, padX: CGFloat, padY: CGFloat, scaledW: CGFloat, scaledH: CGFloat, threshold: Float, doMasks: Bool, iouThresh: Float) -> ([DetectedObject], CGImage?) {
+        let mSize = modelInputSize
         var detTensor: MLMultiArray?
         var protoTensor: MLMultiArray?
 
@@ -352,11 +365,11 @@ class LiveVisionService: NSObject, ObservableObject {
             let x2 = CGFloat(ptr[base + 2])
             let y2 = CGFloat(ptr[base + 3])
 
-            // Sanity check: clamp to 0..640
-            let cx1 = max(0, min(640, x1))
-            let cy1 = max(0, min(640, y1))
-            let cx2 = max(0, min(640, x2))
-            let cy2 = max(0, min(640, y2))
+            // Sanity check: clamp to 0..modelInputSize
+            let cx1 = max(0, min(mSize, x1))
+            let cy1 = max(0, min(mSize, y1))
+            let cx2 = max(0, min(mSize, x2))
+            let cy2 = max(0, min(mSize, y2))
             if cx2 - cx1 < 2 || cy2 - cy1 < 2 { continue }
 
             var coeffs: [Float]? = nil
@@ -405,12 +418,12 @@ class LiveVisionService: NSObject, ObservableObject {
             }
             if let fullMask = buildMask(detections: detsForMask, proto: proto) {
                 // Crop the inner region (where actual video is) so it aligns with displayed frame
-                let pW = CGFloat(proto.shape[3].intValue)  // 160
-                let pH = CGFloat(proto.shape[2].intValue)  // 160
-                let cropX = padX / 640.0 * pW
-                let cropY = padY / 640.0 * pH
-                let cropW = scaledW / 640.0 * pW
-                let cropH = scaledH / 640.0 * pH
+                let pW = CGFloat(proto.shape[3].intValue)
+                let pH = CGFloat(proto.shape[2].intValue)
+                let cropX = padX / mSize * pW
+                let cropY = padY / mSize * pH
+                let cropW = scaledW / mSize * pW
+                let cropH = scaledH / mSize * pH
                 let cropRect = CGRect(x: cropX, y: cropY, width: cropW, height: cropH)
                 if let cropped = fullMask.cropping(to: cropRect) {
                     maskCG = cropped
@@ -454,19 +467,19 @@ class LiveVisionService: NSObject, ObservableObject {
         return unionArea > 0 ? interArea / unionArea : 0
     }
 
-    /// Build mask from detections with bbox in 640x640 model space
+    /// Build mask from detections with bbox in model input space
     private func buildMask(detections: [(CGRect, [Float], (UInt8, UInt8, UInt8))], proto: MLMultiArray) -> CGImage? {
         guard !detections.isEmpty else { return nil }
 
-        let pH = proto.shape[2].intValue  // 160
-        let pW = proto.shape[3].intValue  // 160
-        let pC = proto.shape[1].intValue  // 32
+        let pH = proto.shape[2].intValue
+        let pW = proto.shape[3].intValue
+        let pC = proto.shape[1].intValue
         let protoPtr = proto.dataPointer.bindMemory(to: Float.self, capacity: proto.count)
 
         var pixels = [UInt8](repeating: 0, count: pW * pH * 4)
 
-        // Mask coordinates: bbox in 640-space → scale to 160-space
-        let scale = Float(pW) / 640.0  // 0.25
+        // Mask coordinates: bbox in model space → scale to proto space
+        let scale = Float(pW) / Float(modelInputSize)
 
         for (bbox640, coeffs, rgb) in detections {
             guard coeffs.count == pC else { continue }
